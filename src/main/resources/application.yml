@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: ledger-service
+
+ledger:
+  # The single currency this service operates in. Every account balance and every requested
+  # amount must match it; the service performs no FX conversion (see Money).
+  base-currency: GBP
