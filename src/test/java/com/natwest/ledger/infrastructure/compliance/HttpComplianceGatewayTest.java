@@ -7,11 +7,13 @@ import com.natwest.ledger.config.ComplianceClientProperties;
 import com.natwest.ledger.domain.AccountId;
 import com.natwest.ledger.domain.Money;
 import com.natwest.ledger.domain.TransactionReference;
+import com.natwest.ledger.observability.CorrelationId;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
+import org.apache.logging.log4j.ThreadContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -159,6 +161,36 @@ class HttpComplianceGatewayTest {
                     .contains("\"destinationAccountId\":\"ACC-2002\"")
                     .contains("\"amount\":250.00")
                     .contains("\"currency\":\"GBP\"");
+        }
+
+        @Test
+        @DisplayName("forwards the request's correlation id, so both services' logs join up")
+        void forwardsTheCorrelationId() {
+            compliance.alwaysRespondWith(StubComplianceService.Reply.ok(
+                    StubComplianceService.approved("REF-1")));
+
+            ThreadContext.put(CorrelationId.MDC_KEY, "trace-abc-123");
+            try {
+                screen();
+            } finally {
+                ThreadContext.remove(CorrelationId.MDC_KEY);
+            }
+
+            assertThat(compliance.lastRequestHeader(CorrelationId.HEADER))
+                    .as("without this, a screening decision cannot be tied to the transfer that caused it")
+                    .isEqualTo("trace-abc-123");
+        }
+
+        @Test
+        @DisplayName("sends no correlation header when there is no id in scope")
+        void omitsTheHeaderWhenNoIdInScope() {
+            // Better an absent header than a fabricated id that correlates with nothing.
+            compliance.alwaysRespondWith(StubComplianceService.Reply.ok(
+                    StubComplianceService.approved("REF-1")));
+
+            screen();
+
+            assertThat(compliance.lastRequestHeader(CorrelationId.HEADER)).isNull();
         }
     }
 

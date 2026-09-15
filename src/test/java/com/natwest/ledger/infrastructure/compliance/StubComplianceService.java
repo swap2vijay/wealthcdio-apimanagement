@@ -7,6 +7,8 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
@@ -46,6 +48,7 @@ final class StubComplianceService implements AutoCloseable {
     private volatile IntFunction<Reply> script = attempt -> Reply.ok(approved("REF-1"));
 
     private volatile String lastRequestBody;
+    private volatile Map<String, List<String>> lastRequestHeaders = Map.of();
 
     StubComplianceService() {
         try {
@@ -57,6 +60,7 @@ final class StubComplianceService implements AutoCloseable {
 
         server.createContext("/api/v1/screenings", exchange -> {
             int attempt = requestCount.incrementAndGet();
+            lastRequestHeaders = Map.copyOf(exchange.getRequestHeaders());
             try (InputStream body = exchange.getRequestBody()) {
                 lastRequestBody = new String(body.readAllBytes(), StandardCharsets.UTF_8);
             }
@@ -99,6 +103,20 @@ final class StubComplianceService implements AutoCloseable {
 
     String lastRequestBody() {
         return lastRequestBody;
+    }
+
+    /**
+     * The first value of a header on the most recent request, or null.
+     *
+     * <p>Header names are matched case-insensitively, as HTTP requires - {@code com.sun.net.httpserver}
+     * canonicalises them to {@code Title-Case}, so an exact-match lookup would be quietly wrong.
+     */
+    String lastRequestHeader(String name) {
+        return lastRequestHeaders.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(name))
+                .flatMap(entry -> entry.getValue().stream())
+                .findFirst()
+                .orElse(null);
     }
 
     static String approved(String reference) {

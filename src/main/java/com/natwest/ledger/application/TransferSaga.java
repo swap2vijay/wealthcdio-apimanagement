@@ -7,6 +7,7 @@ import com.natwest.ledger.domain.Money;
 import com.natwest.ledger.domain.SameAccountTransferException;
 import com.natwest.ledger.domain.TransactionReference;
 import com.natwest.ledger.error.LedgerException;
+import org.apache.logging.log4j.CloseableThreadContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -67,6 +68,9 @@ public class TransferSaga {
 
     private static final Duration COMPENSATION_BACKOFF = Duration.ofMillis(25);
 
+    /** Logging context key, surfaced by the log pattern as {@code %X{transferReference}}. */
+    private static final String TRANSFER_REFERENCE_KEY = "transferReference";
+
     private final TransferSagaSteps steps;
     private final ComplianceGateway compliance;
     private final Clock clock;
@@ -101,52 +105,60 @@ public class TransferSaga {
 
         TransactionReference reference = TransactionReference.newReference();
 
-        // One instant for the whole transfer, taken once, so both legs and any reversal agree on when
-        // it happened rather than drifting apart across separately committed steps.
-        Instant occurredAt = clock.instant();
+        // Stamp the reference onto the logging context for the whole saga. A transfer produces log
+        // lines from several steps and possibly a compensation, and interleaved with other requests
+        // they are otherwise impossible to group. Scoped with try-with-resources so it is removed even
+        // when a step throws - a pooled thread must not carry one transfer's reference into the next.
+        try (CloseableThreadContext.Instance ignored =
+                     CloseableThreadContext.put(TRANSFER_REFERENCE_KEY, reference.value())) {
 
-        // Refuse an impossible transfer before any money moves, rather than debiting and unwinding.
-        steps.requireBothAccountsExist(sourceId, destinationId);
+            // One instant for the whole transfer, taken once, so both legs and any reversal agree on
+            // when it happened rather than drifting apart across separately committed steps.
+            Instant occurredAt = clock.instant();
 
-        // --- Step 1: reserve the funds. Commits, so they are genuinely held. ---
-        LedgerEntry debit = steps.debitSource(sourceId, amount, reference, occurredAt,
-                narrativeOr(narrative, "Transfer to " + destinationId));
+            // Refuse an impossible transfer before any money moves, rather than debiting and unwinding.
+            steps.requireBothAccountsExist(sourceId, destinationId);
 
-        log.info("Transfer {} reserved {} from {}; screening", reference, amount, sourceId);
+            // --- Step 1: reserve the funds. Commits, so they are genuinely held. ---
+            LedgerEntry debit = steps.debitSource(sourceId, amount, reference, occurredAt,
+                    narrativeOr(narrative, "Transfer to " + destinationId));
 
-        // --- Step 2: screen it. Cannot throw for transport failure; reports UNAVAILABLE instead. ---
-        ComplianceAssessment assessment = compliance.screen(reference, sourceId, destinationId, amount);
+            log.info("Transfer {} reserved {} from {}; screening", reference, amount, sourceId);
 
-        if (!assessment.isApproved()) {
-            // Fail closed. A refusal and an outage are both reasons not to proceed; they differ only in
-            // what the caller is told, because only one of them is worth retrying.
-            unwind(reference, sourceId, amount, occurredAt,
-                    "compliance %s (%s)".formatted(assessment.outcome(), assessment.reason()));
+            // --- Step 2: screen it. Cannot throw for transport failure; reports UNAVAILABLE instead. ---
+            ComplianceAssessment assessment = compliance.screen(reference, sourceId, destinationId, amount);
 
-            throw refusalFor(assessment);
+            if (!assessment.isApproved()) {
+                // Fail closed. A refusal and an outage are both reasons not to proceed; they differ only
+                // in what the caller is told, because only one of them is worth retrying.
+                unwind(reference, sourceId, amount, occurredAt,
+                        "compliance %s (%s)".formatted(assessment.outcome(), assessment.reason()));
+
+                throw refusalFor(assessment);
+            }
+
+            // --- Step 3: complete the transfer. ---
+            LedgerEntry credit;
+            try {
+                credit = steps.creditDestination(destinationId, amount, reference, occurredAt,
+                        narrativeOr(narrative, "Transfer from " + sourceId));
+
+            } catch (RuntimeException creditFailure) {
+                // Screening approved it but the credit did not land - a lost optimistic lock race, or
+                // the database becoming unavailable. The money is still out of the source account, so it
+                // has to go back regardless of what went wrong.
+                log.error("Transfer {} was approved but crediting {} failed; reversing",
+                        reference, destinationId, creditFailure);
+
+                unwind(reference, sourceId, amount, occurredAt,
+                        "credit to " + destinationId + " failed");
+
+                throw creditFailure;
+            }
+
+            log.info("Transfer {} completed: {} from {} to {}", reference, amount, sourceId, destinationId);
+            return new TransferReceipt(reference, debit, credit);
         }
-
-        // --- Step 3: complete the transfer. ---
-        LedgerEntry credit;
-        try {
-            credit = steps.creditDestination(destinationId, amount, reference, occurredAt,
-                    narrativeOr(narrative, "Transfer from " + sourceId));
-
-        } catch (RuntimeException creditFailure) {
-            // Screening approved it but the credit did not land - a lost optimistic lock race, or the
-            // database becoming unavailable. The money is still out of the source account, so it has to
-            // go back regardless of what went wrong.
-            log.error("Transfer {} was approved but crediting {} failed; reversing",
-                    reference, destinationId, creditFailure);
-
-            unwind(reference, sourceId, amount, occurredAt,
-                    "credit to " + destinationId + " failed");
-
-            throw creditFailure;
-        }
-
-        log.info("Transfer {} completed: {} from {} to {}", reference, amount, sourceId, destinationId);
-        return new TransferReceipt(reference, debit, credit);
     }
 
     /**

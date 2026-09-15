@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Structured logging for containers. Select it with:
+      LOGGING_CONFIG=classpath:log4j2-json.xml
+  which is what the Kubernetes deployment sets.
+
+  One JSON object per line to stdout, and nothing else. In a container the log is a stream that the
+  platform collects, so writing to a file inside the container would only fill an ephemeral layer that
+  disappears with the pod - and would hide the logs from the very system meant to gather them.
+-->
+<Configuration status="WARN">
+
+    <Appenders>
+        <Console name="Json" target="SYSTEM_OUT">
+            <!--
+              Elastic Common Schema, rather than a hand-rolled field set. A standard schema means the
+              fields are already understood by common tooling, and JsonTemplateLayout handles escaping -
+              which is the part a hand-built JSON pattern reliably gets wrong the first time a log
+              message contains a quote or a newline.
+
+              MDC entries (the correlation id and transfer reference) are included by the ECS template
+              automatically, which is the whole reason for shipping JSON: they become queryable fields
+              rather than text to be parsed out of a message.
+            -->
+            <JsonTemplateLayout eventTemplateUri="classpath:EcsLayout.json"/>
+        </Console>
+    </Appenders>
+
+    <Loggers>
+        <Logger name="com.natwest.ledger" level="DEBUG"/>
+        <Logger name="io.github.resilience4j" level="DEBUG"/>
+        <Logger name="org.hibernate.SQL" level="WARN"/>
+
+        <Root level="INFO">
+            <AppenderRef ref="Json"/>
+        </Root>
+    </Loggers>
+
+</Configuration>

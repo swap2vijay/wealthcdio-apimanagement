@@ -82,6 +82,16 @@
         </dependency>
 
         <!--
+          Emits structured JSON logs for the container profile. Version managed by Spring Boot's
+          log4j-bom. Used instead of a hand-built JSON pattern, which gets escaping wrong the first
+          time a log message contains a quote or a newline.
+        -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-layout-template-json</artifactId>
+        </dependency>
+
+        <!--
           H2 in-memory, which keeps the project runnable with no external setup. The adapter is
           written against standard JPA, so swapping in PostgreSQL is a configuration change; see
           the README for what a production deployment would need instead (versioned migrations).
@@ -104,6 +114,18 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <!--
+                          Writes build-info.properties so /actuator/info reports the exact version
+                          running. Answering "which build is deployed?" from the service itself beats
+                          inferring it from an image tag that may have been overwritten.
+                        -->
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
