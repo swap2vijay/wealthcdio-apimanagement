@@ -1,0 +1,172 @@
+# =============================================================================
+# compliance-service - default values
+#
+# Never executed: no cluster was available while writing this. Reviewed, not
+# proven.
+#
+# Read this alongside ledger-service/values.yaml. The two charts are structurally
+# identical, and almost every difference between them traces back to one fact:
+# this service holds no state. That single property is what makes replicas,
+# autoscaling and rolling updates safe here and unsafe there.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Replicas
+# -----------------------------------------------------------------------------
+#
+# TWO, where the ledger service has one.
+#
+# Screening is a pure function of the request and the configured rules: no
+# database, no session, no ledger. Any replica answers any request identically,
+# so a second one adds capacity and removes a single point of failure without
+# introducing the divergent-state problem that limits the ledger service to one.
+#
+# There is a resilience argument too. The ledger service fails CLOSED - if
+# screening is unreachable, transfers stop rather than proceeding unscreened.
+# That makes this service's availability the ceiling on transfer availability, so
+# it earns a second replica more than the caller does.
+replicaCount: 2
+
+image:
+  repository: registry.example.internal/wealthcdio/compliance-service
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# -----------------------------------------------------------------------------
+# Rollout strategy
+# -----------------------------------------------------------------------------
+#
+# RollingUpdate with maxUnavailable 0, where the ledger service uses Recreate.
+#
+# Stateless replicas can overlap safely: two versions serving simultaneously is
+# fine when both compute the same answer from the same rules. maxUnavailable 0
+# means capacity never dips below replicaCount during a deploy - important
+# because the caller stops transferring money the moment this service becomes
+# unreachable.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+nameOverride: ""
+
+# Pinned so that in-cluster DNS is predictable. The ledger chart's
+# config.complianceBaseUrl is http://compliance-service:8081, which resolves only
+# if this service is actually named "compliance-service" - not
+# "<release>-compliance-service". Rather than leave the two charts to agree by
+# luck, this fixes the name and the coupling is at least visible.
+fullnameOverride: "compliance-service"
+
+serviceAccount:
+  create: true
+  name: ""
+  automountServiceAccountToken: false
+  annotations: {}
+
+service:
+  type: ClusterIP
+  # 8081, matching server.port in application.yml. Different from the ledger
+  # service's 8080 so both can also run side by side outside a cluster, where
+  # there is no per-pod network namespace to keep them apart.
+  port: 8081
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+#
+# Noticeably smaller than the ledger service's. No JDBC pool, no Hibernate
+# persistence context, no entity cache - the footprint is the JVM, the web layer
+# and a list of blocked accounts. The image sets MaxRAMPercentage=70, so a 384Mi
+# limit gives roughly a 268Mi heap.
+#
+# Same reasoning as the other chart on the shape of it: memory request equals
+# limit for Guaranteed QoS, CPU has a request and no limit so that GC and JIT are
+# never throttled.
+resources:
+  requests:
+    cpu: 250m
+    memory: 384Mi
+  limits:
+    memory: 384Mi
+
+probes:
+  startup:
+    path: /actuator/health/readiness
+    periodSeconds: 2
+    failureThreshold: 30
+  liveness:
+    path: /actuator/health/liveness
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    path: /actuator/health/readiness
+    periodSeconds: 5
+    # Tighter than the ledger service's 2s. The caller's read timeout is 2s and a
+    # slow screening burns the caller's own request budget, so an unresponsive
+    # replica should leave the load balancer promptly.
+    timeoutSeconds: 1
+    failureThreshold: 2
+    successThreshold: 1
+
+# -----------------------------------------------------------------------------
+# Autoscaling
+# -----------------------------------------------------------------------------
+#
+# ENABLED, where the ledger service's is off - the difference is statelessness,
+# nothing else.
+#
+# minReplicas matches replicaCount so the HPA never scales below the baseline the
+# caller depends on.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# -----------------------------------------------------------------------------
+# Disruption budget
+# -----------------------------------------------------------------------------
+#
+# Present here and not in the ledger chart, because a PDB with one replica is
+# either meaningless or actively harmful: minAvailable 1 on a single-replica
+# Deployment blocks node drains indefinitely.
+#
+# With two or more replicas it does its job - a cluster upgrade evicts one pod at
+# a time instead of both at once. Voluntary disruption only; it does not protect
+# against a node failing.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# -----------------------------------------------------------------------------
+# Application configuration
+# -----------------------------------------------------------------------------
+config:
+  loggingConfig: classpath:log4j2-json.xml
+
+  # The screening ceiling. A transfer at exactly this figure is refused, not
+  # allowed: the policy compares with >= deliberately, because a limit in banking
+  # is a level that must not be reached rather than one that may be touched.
+  # Configuration rather than code because such a figure moves on a regulatory
+  # timescale, not a release one.
+  singleTransferLimit: "10000.00"
+
+  # Counterparties this bank will not transact with. Indexed environment
+  # variables, because that is how Spring binds a list from the environment:
+  # COMPLIANCE_BLOCKEDACCOUNTS_0, _1, and so on. Ugly, but it keeps the list out
+  # of the jar.
+  blockedAccounts:
+    - ACC-BLOCKED
+
+  extraEnv: {}
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+terminationGracePeriodSeconds: 30

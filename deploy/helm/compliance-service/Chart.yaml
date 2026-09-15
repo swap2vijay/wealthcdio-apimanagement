@@ -1,0 +1,22 @@
+apiVersion: v2
+name: compliance-service
+description: |
+  Transfer screening service (Service B) - applies limits and blocked-counterparty
+  rules and returns an approve/refuse decision.
+
+  A separate chart from ledger-service, mirroring the fact that they are separate
+  deployables that share no code. The only contract between them is the JSON on
+  POST /api/v1/screenings, so they can be released, scaled and rolled back
+  independently - which is the entire reason for splitting them.
+type: application
+
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - banking
+  - compliance
+  - screening
+
+maintainers:
+  - name: WealthCDIO API Management

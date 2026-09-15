@@ -1,0 +1,36 @@
+# Keeps the build context small and, more importantly, keeps things out of the
+# image that have no business being there.
+
+# Build output: the image builds its own, and copying a stale local target/ is a
+# classic way to ship a jar that does not match the source.
+target/
+compliance-service/target/
+
+# The other service. It has its own build context, and including it here would
+# mean a change to it invalidated this image's cache for no reason.
+compliance-service/
+
+# Version control history: large, and it can contain credentials in old commits.
+.git/
+.gitignore
+.gitattributes
+
+# Local tooling and IDE state.
+.idea/
+.vscode/
+.kiro/
+*.iml
+
+# Docs and deployment descriptors are not needed to run the service.
+docs/
+deploy/
+README.md
+Jenkinsfile
+docker-compose.yml
+
+# Logs and any local environment files. A .env copied into an image is a common
+# way secrets escape.
+logs/
+*.log
+.env
+.env.*

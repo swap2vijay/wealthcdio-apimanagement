@@ -2,9 +2,18 @@ spring:
   application:
     name: compliance-service
 
+  lifecycle:
+    # Kept under the chart's terminationGracePeriodSeconds so draining completes
+    # before the pod is killed.
+    timeout-per-shutdown-phase: 25s
+
 server:
   # A different port from the ledger service so both can run locally at once.
   port: 8081
+
+  # Let an in-flight screening finish rather than failing it on shutdown. A
+  # refused screening would make the caller reverse a transfer unnecessarily.
+  shutdown: graceful
 
 management:
   endpoints:

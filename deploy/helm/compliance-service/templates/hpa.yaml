@@ -1,0 +1,41 @@
+{{- if .Values.autoscaling.enabled -}}
+# Enabled here, unlike the ledger service, purely because this service is
+# stateless: a new replica is immediately as useful as the existing ones, since a
+# screening decision is a function of the request and the configured rules and
+# nothing else.
+#
+# minReplicas matches replicaCount deliberately. The ledger service fails closed -
+# if screening is unreachable, transfers stop rather than proceeding unscreened -
+# so this service's floor is effectively the floor on transfer availability, and
+# the autoscaler must not be allowed to dip below it during a quiet period.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "compliance-service.fullname" . }}
+  labels:
+    {{- include "compliance-service.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "compliance-service.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Measured against the CPU request, so the request in values.yaml has to
+          # be a realistic figure. Set it too low and the pod looks permanently
+          # overloaded and scales without cause.
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      # Slower to remove capacity than to add it. Screening traffic follows the
+      # caller's transfer traffic, which is bursty; scaling down promptly after a
+      # burst just means scaling back up during the next one, and each new pod
+      # costs a JVM start before it can serve.
+      stabilizationWindowSeconds: 300
+{{- end }}

@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ledger-service.fullname" . }}
+  labels:
+    {{- include "ledger-service.labels" . | nindent 4 }}
+spec:
+  # Omitted entirely when the HPA is in charge. If both the Deployment and the
+  # HPA declare a replica count they fight: Helm sets it back on every upgrade,
+  # the HPA scales it out again, and the pod count oscillates. Whichever one owns
+  # the number has to be the only one that states it.
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "ledger-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Hash of the rendered ConfigMap. Without this, editing configuration and
+        # running `helm upgrade` would change the ConfigMap and leave the pods
+        # running the old values - no diff on the Deployment, so no rollout. That
+        # is a memorably confusing way to lose an afternoon. With it, a config
+        # change is a pod template change, and the pods restart.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "ledger-service.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "ledger-service.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+
+      # Must be longer than spring.lifecycle.timeout-per-shutdown-phase (25s).
+      # Spring's graceful shutdown stops accepting new requests and then waits for
+      # in-flight ones to finish; if Kubernetes SIGKILLs the container before that
+      # window closes, the graceful part never happens and a transfer can be cut
+      # in half. The five-second margin covers the JVM's own exit.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+
+      # Pod-level security context: applies to the volumes and to every container.
+      securityContext:
+        # Refuse to start if the image's USER resolves to root. The Dockerfile
+        # already creates and switches to an unprivileged user, but that is a
+        # promise made by the image; this is the platform verifying it. If someone
+        # rebuilds the image without the USER line, the pod fails to start rather
+        # than quietly running as root.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        # Owns mounted volumes to this group so the non-root user can write to
+        # them.
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          securityContext:
+            # No syscall or capability this service needs is a privileged one: it
+            # listens on 8080 (above 1024, so no NET_BIND_SERVICE), reads its own
+            # jar, and makes outbound HTTP calls. Dropping everything and then
+            # finding nothing breaks is the evidence that the list was accurate.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # The whole ConfigMap, rather than named keys. Adding a setting then
+          # means editing one file instead of two, and there is no way to add a
+          # ConfigMap entry and forget to wire it through.
+          envFrom:
+            - configMapRef:
+                name: {{ include "ledger-service.fullname" . }}
+
+          # Three probes, each answering a different question. Conflating them is
+          # the classic mistake: a liveness probe pointed at a health endpoint
+          # that includes downstream dependencies will restart healthy pods every
+          # time a dependency wobbles, converting someone else's brief outage into
+          # a self-inflicted restart loop.
+          #
+          # startupProbe - "has it finished booting?" Holds the other two off
+          # while the JVM starts. Without it, liveness would begin counting
+          # failures against a process that simply has not opened its port yet and
+          # would kill it before it ever could.
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+
+          # livenessProbe - "is this process wedged?" Deliberately the liveness
+          # group, which reports on the JVM itself and nothing external. The only
+          # correct response to this failing is a restart, so it must only fail
+          # for reasons a restart fixes.
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+
+          # readinessProbe - "should it be sent traffic?" This is also what drains
+          # the pod during shutdown: Spring flips readiness to DOWN on SIGTERM, the
+          # endpoints controller removes the pod, and graceful shutdown then has an
+          # empty queue to finish rather than a stream of new arrivals.
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+            successThreshold: {{ .Values.probes.readiness.successThreshold }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          # readOnlyRootFilesystem means the JVM cannot write anywhere by default,
+          # and it does need somewhere: /tmp holds hsperfdata (used by jcmd, jstack
+          # and friends) and Tomcat's multipart staging area. An emptyDir gives it
+          # exactly that one writable directory, scoped to the pod's lifetime, and
+          # leaves the rest of the filesystem immutable.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

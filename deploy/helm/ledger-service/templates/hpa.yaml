@@ -1,0 +1,37 @@
+{{- if .Values.autoscaling.enabled -}}
+# Rendered only when explicitly enabled, and for this service it is OFF.
+#
+# Scaling out a service whose database lives inside the pod does not add capacity,
+# it adds disagreement: each new replica starts with an empty ledger of its own.
+# The template exists so that enabling autoscaling after the move to a shared
+# database is a one-line values change with no chart work, and so that the
+# decision is visibly a decision rather than an omission.
+#
+# CPU is the only metric here on purpose. Request-rate or latency targets are
+# better signals for an API, but they need a metrics adapter that this chart
+# cannot assume exists; CPU works on any cluster with metrics-server.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ledger-service.fullname" . }}
+  labels:
+    {{- include "ledger-service.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ledger-service.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Utilisation is measured against the CPU *request*, not the limit -
+          # which is why the request in values.yaml has to be a realistic figure
+          # rather than a token one. Set the request too low and the pod looks
+          # permanently overloaded; too high and it never scales.
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

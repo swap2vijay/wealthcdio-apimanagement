@@ -1,6 +1,20 @@
+server:
+  # In-flight requests are allowed to finish when a SIGTERM arrives, rather than
+  # being cut off mid-transaction. For a service that moves money this matters: an
+  # abrupt shutdown between a saga's debit and its credit is exactly the state
+  # that needs manual reconciliation, and a rolling deploy would create one per
+  # pod otherwise.
+  shutdown: graceful
+
 spring:
   application:
     name: ledger-service
+
+  lifecycle:
+    # Must stay below the Kubernetes terminationGracePeriodSeconds in the Helm
+    # chart (30s), or the pod is killed while still draining and the grace period
+    # achieves nothing.
+    timeout-per-shutdown-phase: 25s
 
   datasource:
     # H2 in-memory keeps the service runnable with no external setup. The adapter is written

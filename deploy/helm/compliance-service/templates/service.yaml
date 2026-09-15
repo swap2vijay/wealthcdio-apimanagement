@@ -1,0 +1,18 @@
+# ClusterIP, and this one has no business being anything else. Screening is an
+# internal decision service with exactly one caller inside the same namespace;
+# there is no scenario in which it should be reachable from outside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "compliance-service.fullname" . }}
+  labels:
+    {{- include "compliance-service.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "compliance-service.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,47 @@
+# Non-secret configuration, injected as environment variables.
+#
+# A ConfigMap consumed with envFrom, rather than a long list of `env:` entries in
+# the Deployment. Two reasons:
+#
+#  - Changing configuration then touches one object, and `kubectl describe
+#    configmap` answers "what is this pod actually configured with?" in one place.
+#  - The Deployment carries a checksum annotation over this file (see
+#    deployment.yaml), so editing a value here rolls the pods. Without that, a
+#    ConfigMap edit would sit inert until something else happened to restart them,
+#    which is a genuinely confusing failure mode.
+#
+# Nothing secret belongs here. ConfigMaps are stored in plain text and readable
+# by anyone with get access to the namespace; credentials would need a Secret,
+# and preferably one sourced from an external secret store.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ledger-service.fullname" . }}
+  labels:
+    {{- include "ledger-service.labels" . | nindent 4 }}
+data:
+  # Selects the JSON/ECS log4j2 configuration over the human-readable default,
+  # so the platform's log collector gets structured events with the correlation
+  # id as a first-class field instead of text it has to parse.
+  LOGGING_CONFIG: {{ .Values.config.loggingConfig | quote }}
+
+  # Where to reach the compliance service. In-cluster DNS: the short name only
+  # resolves within the same namespace, which is the intent - these two are
+  # deployed together.
+  LEDGER_COMPLIANCE_BASE_URL: {{ .Values.config.complianceBaseUrl | quote }}
+
+  # Timeouts, not "eventually". A transfer holds a reserved debit while it waits
+  # for screening, so an unbounded wait would leave customer funds pinned. These
+  # are the values the circuit breaker's failure detection is calibrated around:
+  # a read timeout counts as a failure and opens the breaker, which is why it is
+  # seconds rather than tens of seconds.
+  LEDGER_COMPLIANCE_CONNECT_TIMEOUT: {{ .Values.config.complianceConnectTimeout | quote }}
+  LEDGER_COMPLIANCE_READ_TIMEOUT: {{ .Values.config.complianceReadTimeout | quote }}
+
+  # The currency new accounts are opened in when the request does not say.
+  # There is no FX in this service, so this is effectively the only currency it
+  # can do arithmetic in.
+  LEDGER_BASE_CURRENCY: {{ .Values.config.baseCurrency | quote }}
+  {{- range $key, $value := .Values.config.extraEnv }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

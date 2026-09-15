@@ -1,0 +1,81 @@
+# =============================================================================
+# Runs both services locally, wired together.
+#
+#   docker compose up --build
+#   curl localhost:8080/actuator/health
+#
+# Note: this file has been reviewed but never executed - Docker is not installed
+# on the machine it was written on. Treat it as a reviewed starting point rather
+# than a verified one.
+# =============================================================================
+
+services:
+
+  compliance-service:
+    build:
+      context: ./compliance-service
+    image: compliance-service:0.1.0
+    container_name: compliance-service
+    environment:
+      # Structured logs, so `docker compose logs` output is the same shape the
+      # platform would collect in a real deployment.
+      LOGGING_CONFIG: classpath:log4j2-json.xml
+
+      # Screening rules as configuration. Handy for a demonstration: lower the
+      # limit and watch the ledger service's transfers get refused with LDG-3001.
+      COMPLIANCE_SINGLE_TRANSFER_LIMIT: "10000.00"
+      COMPLIANCE_BLOCKEDACCOUNTS_0: ACC-BLOCKED
+    ports:
+      - "8081:8081"
+    networks:
+      - ledger
+    # No memory limit is set here. Compose limits are per-container and the JVM
+    # reads the cgroup limit, so setting one changes the heap size too - which is
+    # a useful thing to exercise deliberately, not by accident, locally.
+
+  ledger-service:
+    build:
+      context: .
+    image: ledger-service:0.1.0
+    container_name: ledger-service
+    environment:
+      LOGGING_CONFIG: classpath:log4j2-json.xml
+
+      # Reaches the other service by its compose service name. The port is the
+      # container's, not the published one - inside the network there is no
+      # port mapping to go through.
+      LEDGER_COMPLIANCE_BASE_URL: http://compliance-service:8081
+
+      # Deliberately short, matching production. A local setup that waits ten
+      # seconds for a dependency teaches the wrong reflexes about timeouts.
+      LEDGER_COMPLIANCE_CONNECT_TIMEOUT: 500ms
+      LEDGER_COMPLIANCE_READ_TIMEOUT: 2s
+    ports:
+      - "8080:8080"
+    depends_on:
+      # service_started, not service_healthy, and on purpose. The ledger service
+      # is built to start and keep serving deposits, withdrawals and queries even
+      # when compliance is unreachable - only transfers are affected, and those
+      # fail closed with 503. Waiting for compliance to be healthy would hide
+      # exactly the behaviour worth demonstrating, and would make a local failure
+      # in one service look like a total outage.
+      #
+      # Stop compliance-service and try a transfer: it returns LDG-3002, the
+      # debit is reversed, and after enough failures the circuit opens.
+      - compliance-service
+    networks:
+      - ledger
+
+networks:
+  ledger:
+    driver: bridge
+
+# Not included, and worth saying why:
+#
+# - No database service. The ledger service runs H2 in memory, so there is
+#   nothing to stand up - and equally, nothing survives a restart. Swapping in
+#   PostgreSQL means adding a service here and overriding SPRING_DATASOURCE_*;
+#   the JPA adapter needs no code change. See the README.
+#
+# - No volumes. Logs go to stdout by design, so there is no log directory to
+#   mount, and there is no database file to persist.
