@@ -34,6 +34,12 @@ public enum ErrorCode {
     ACCOUNT_NOT_FOUND("LDG-2001", "No account exists with the supplied identifier"),
     DUPLICATE_ACCOUNT("LDG-2002", "An account already exists with the supplied identifier"),
 
+    /**
+     * Another request changed the same account first, so this one was abandoned rather than allowed
+     * to overwrite it. Safe and sensible to retry.
+     */
+    CONCURRENT_MODIFICATION("LDG-2003", "The account was modified concurrently; the request was not applied"),
+
     /* ---------- 4xxx: the request itself was malformed ---------- */
 
     MALFORMED_REQUEST("LDG-4001", "The request could not be read or failed validation"),

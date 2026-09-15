@@ -1,8 +1,6 @@
 package com.natwest.ledger.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.natwest.ledger.infrastructure.memory.InMemoryAccountRepository;
-import com.natwest.ledger.infrastructure.memory.InMemoryLedgerRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -11,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -27,11 +26,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Specifies the HTTP contract, exercised through the whole stack.
  *
- * <p>Runs against the real application context - controllers, validation, the exception advice, the
- * services and the in-memory adapters - because the interesting behaviour is emergent. Whether a
- * refused withdrawal returns 422 with {@code LDG-1003} and leaves the balance untouched is a fact
+ * <p>Runs against the real application context on the default profile - controllers, validation, the
+ * exception advice, the services, JPA and H2 - because the interesting behaviour is emergent. Whether
+ * a refused withdrawal returns 422 with {@code LDG-1003} and leaves the balance untouched is a fact
  * about the assembled system, and mocking the service away would assert only that the controller
  * calls a method.
+ *
+ * <p>Deliberately not {@code @Transactional}. Wrapping each test in a rolled-back transaction would
+ * be tidier, but it would also mean nothing is ever committed - and commit is exactly when JPA
+ * flushes, applies constraints and performs its optimistic version check. Truncating tables between
+ * tests instead keeps every write a real one.
  *
  * <p>Failure cases check the resulting balance as well as the status. An endpoint that returns the
  * right error while having already moved money is far worse than one that simply fails.
@@ -51,17 +55,15 @@ class LedgerApiTest {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private InMemoryAccountRepository accounts;
-
-    @Autowired
-    private InMemoryLedgerRepository ledger;
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
-    void clearStores() {
-        // The adapters are context-scoped singletons, so state must be reset between tests rather
-        // than relying on each test using unique ids.
-        accounts.deleteAll();
-        ledger.deleteAll();
+    void clearTables() {
+        // Truncating rather than reaching for the repositories keeps this test independent of which
+        // persistence adapter is wired in, and avoids widening any production class's visibility
+        // purely for the benefit of a test.
+        jdbcTemplate.execute("DELETE FROM ledger_entry");
+        jdbcTemplate.execute("DELETE FROM account");
     }
 
     // ---------------------------------------------------------------- helpers
@@ -158,10 +160,10 @@ class LedgerApiTest {
 
             mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(1))
-                    .andExpect(jsonPath("$[0].type").value("DEPOSIT"))
-                    .andExpect(jsonPath("$[0].direction").value("CREDIT"))
-                    .andExpect(jsonPath("$[0].narrative").value("Opening balance"));
+                    .andExpect(jsonPath("$.transactions.length()").value(1))
+                    .andExpect(jsonPath("$.transactions[0].type").value("DEPOSIT"))
+                    .andExpect(jsonPath("$.transactions[0].direction").value("CREDIT"))
+                    .andExpect(jsonPath("$.transactions[0].narrative").value("Opening balance"));
         }
 
         @Test
@@ -260,7 +262,9 @@ class LedgerApiTest {
 
             mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(0));
+                    .andExpect(jsonPath("$.transactions.length()").value(0))
+                    .andExpect(jsonPath("$.totalTransactions").value(0))
+                    .andExpect(jsonPath("$.hasNext").value(false));
         }
 
         @Test
@@ -280,13 +284,101 @@ class LedgerApiTest {
 
             mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.length()").value(3))
-                    .andExpect(jsonPath("$[0].narrative").value("Opening balance"))
-                    .andExpect(jsonPath("$[1].type").value("DEPOSIT"))
-                    .andExpect(jsonPath("$[2].type").value("WITHDRAWAL"))
-                    .andExpect(jsonPath("$[2].direction").value("DEBIT"))
-                    .andExpect(jsonPath("$[0].entryId").isNotEmpty())
-                    .andExpect(jsonPath("$[0].occurredAt").isNotEmpty());
+                    .andExpect(jsonPath("$.accountId").value("ACC-1001"))
+                    .andExpect(jsonPath("$.transactions.length()").value(3))
+                    .andExpect(jsonPath("$.transactions[0].narrative").value("Opening balance"))
+                    .andExpect(jsonPath("$.transactions[1].type").value("DEPOSIT"))
+                    .andExpect(jsonPath("$.transactions[2].type").value("WITHDRAWAL"))
+                    .andExpect(jsonPath("$.transactions[2].direction").value("DEBIT"))
+                    .andExpect(jsonPath("$.transactions[0].entryId").isNotEmpty())
+                    .andExpect(jsonPath("$.transactions[0].occurredAt").isNotEmpty());
+        }
+
+        @Test
+        @DisplayName("pages the statement, reporting the total and whether more remains")
+        void pagesTheStatement() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+            for (int i = 0; i < 4; i++) {
+                deposit("ACC-1001", "1.00").andExpect(status().isCreated());
+            }
+            // 5 entries in total: the opening balance plus four deposits.
+
+            mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001").param("size", "2"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.page").value(0))
+                    .andExpect(jsonPath("$.size").value(2))
+                    .andExpect(jsonPath("$.transactions.length()").value(2))
+                    .andExpect(jsonPath("$.totalTransactions").value(5))
+                    .andExpect(jsonPath("$.totalPages").value(3))
+                    .andExpect(jsonPath("$.hasNext").value(true))
+                    .andExpect(jsonPath("$.transactions[0].narrative").value("Opening balance"));
+
+            mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001")
+                            .param("page", "2").param("size", "2"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.transactions.length()").value(1))
+                    .andExpect(jsonPath("$.hasNext")
+                            .value(false));
+        }
+
+        @Test
+        @DisplayName("keeps the statement in a stable order even when timestamps tie")
+        void keepsStableOrderWhenTimestampsTie() throws Exception {
+            givenAccount("ACC-1001", "0");
+            for (int i = 1; i <= 6; i++) {
+                deposit("ACC-1001", i + ".00").andExpect(status().isCreated());
+            }
+
+            // Entries written within the same clock tick share an instant. Ordering by timestamp alone
+            // would leave their relative order to the database, so the running balance could appear to
+            // move backwards. The insertion sequence guarantees it does not.
+            String json = mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001"))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+
+            var transactions = objectMapper.readTree(json).get("transactions");
+            BigDecimal previous = BigDecimal.ZERO;
+            for (var transaction : transactions) {
+                BigDecimal balanceAfter = new BigDecimal(transaction.get("balanceAfter").asText());
+                assertThat(balanceAfter)
+                        .as("the running balance must increase monotonically across deposits")
+                        .isGreaterThan(previous);
+                previous = balanceAfter;
+            }
+            assertThat(previous).isEqualByComparingTo("21.00");
+        }
+
+        @Test
+        @DisplayName("returns an empty page past the end rather than treating it as an error")
+        void returnsEmptyPagePastTheEnd() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+
+            mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001")
+                            .param("page", "40").param("size", "10"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.transactions.length()").value(0))
+                    .andExpect(jsonPath("$.totalTransactions").value(1));
+        }
+
+        @Test
+        @DisplayName("caps an over-large page size instead of letting the caller choose the allocation")
+        void capsPageSize() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+
+            mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001")
+                            .param("size", "1000000"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.size").value(200));
+        }
+
+        @Test
+        @DisplayName("rejects a negative page as a caller mistake")
+        void rejectsNegativePage() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+
+            mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001").param("page", "-1"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("LDG-4001"));
         }
     }
 
@@ -519,14 +611,14 @@ class LedgerApiTest {
             transfer("ACC-1001", "ACC-2002", "30.00", null).andExpect(status().isCreated());
 
             mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-2002"))
-                    .andExpect(jsonPath("$.length()").value(1))
-                    .andExpect(jsonPath("$[0].type").value("TRANSFER_IN"))
-                    .andExpect(jsonPath("$[0].narrative").value("Transfer from ACC-1001"));
+                    .andExpect(jsonPath("$.transactions.length()").value(1))
+                    .andExpect(jsonPath("$.transactions[0].type").value("TRANSFER_IN"))
+                    .andExpect(jsonPath("$.transactions[0].narrative").value("Transfer from ACC-1001"));
 
             mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001"))
-                    .andExpect(jsonPath("$.length()").value(2))
-                    .andExpect(jsonPath("$[1].type").value("TRANSFER_OUT"))
-                    .andExpect(jsonPath("$[1].narrative").value("Transfer to ACC-2002"));
+                    .andExpect(jsonPath("$.transactions.length()").value(2))
+                    .andExpect(jsonPath("$.transactions[1].type").value("TRANSFER_OUT"))
+                    .andExpect(jsonPath("$.transactions[1].narrative").value("Transfer to ACC-2002"));
         }
     }
 

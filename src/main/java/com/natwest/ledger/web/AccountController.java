@@ -1,6 +1,7 @@
 package com.natwest.ledger.web;
 
 import com.natwest.ledger.application.AccountService;
+import com.natwest.ledger.application.Statement;
 import com.natwest.ledger.config.LedgerProperties;
 import com.natwest.ledger.domain.Account;
 import com.natwest.ledger.domain.AccountId;
@@ -12,12 +13,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Clock;
-import java.util.List;
 
 /**
  * Accounts, and the two queries the requirements ask for: balance and transaction history.
@@ -92,17 +93,33 @@ public class AccountController {
     }
 
     /**
-     * The account's transaction history, oldest first.
+     * A page of the account's transaction history, oldest first.
      *
-     * <p>Returns the full history. Unpaged is a known limitation: it is honest for the current
-     * in-memory store, and paging is deferred to Phase 4 where it can be pushed down into a database
-     * query rather than faked by slicing a list that was already loaded in full.
+     * <p>Paged rather than complete. An account's history only ever grows, so an unpaged endpoint has a
+     * response size decided by the customer's transaction count rather than by this service - fine in a
+     * test, a liability in production. The page size is capped server-side, so {@code ?size=1000000}
+     * cannot make a caller the one who chooses how much memory is allocated.
      *
-     * <p>An unknown account gives {@code 404}, not an empty list, so a mistyped id is not mistaken
-     * for a customer who has never transacted.
+     * <p>An unknown account gives {@code 404}, not an empty page, so a mistyped id is not mistaken for a
+     * customer who has never transacted. An out-of-range page, by contrast, returns an empty window:
+     * that is a normal thing for a paging client to do at a boundary, not an error.
+     *
+     * @param page zero-based, defaults to the first page
+     * @param size defaults to {@link Statement#DEFAULT_PAGE_SIZE}, capped at {@link Statement#MAX_PAGE_SIZE}
      */
     @GetMapping("/{accountId}/transactions")
-    public List<TransactionResponse> getTransactions(@PathVariable String accountId) {
-        return TransactionResponse.from(accountService.transactionHistory(AccountId.of(accountId)));
+    public StatementResponse getTransactions(@PathVariable String accountId,
+                                            @RequestParam(required = false) Integer page,
+                                            @RequestParam(required = false) Integer size) {
+        AccountId id = AccountId.of(accountId);
+
+        // Defaults are resolved here rather than in a defaultValue string so the constants in
+        // Statement remain the single source of truth.
+        Statement statement = accountService.transactionHistory(
+                id,
+                page == null ? 0 : page,
+                size == null ? Statement.DEFAULT_PAGE_SIZE : size);
+
+        return StatementResponse.from(id, statement);
     }
 }

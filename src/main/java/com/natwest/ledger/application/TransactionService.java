@@ -10,6 +10,7 @@ import com.natwest.ledger.domain.TransactionReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -23,11 +24,18 @@ import java.util.Objects;
  * it decided. The validation lives in {@link Account}, so this class contains no {@code if} guarding
  * a balance.
  *
- * <p><b>Transfers here are single-process and in-memory-atomic.</b> That is deliberate for this
- * phase: it is the simplest thing that satisfies the requirement, and it makes the sequencing
- * decisions (which leg first, which account to load first) explicit and testable before any
- * network hop exists. Phase 6 revisits this as an orchestrated saga once a second service is
- * genuinely involved, at which point "both or neither" can no longer be assumed.
+ * <p><b>Transfers here are single-process and genuinely atomic.</b> Every method is
+ * {@code @Transactional}, so a transfer's two balance updates and two ledger entries commit together
+ * or not at all. That is the simplest thing that satisfies the requirement, and it pins down the
+ * sequencing decisions - which leg first, which account to load first - before any network hop
+ * exists. Phase 6 revisits this as an orchestrated saga once a second service is genuinely involved,
+ * at which point a single database transaction can no longer span the work and "both or neither" has
+ * to be reconstructed with compensation.
+ *
+ * <p><b>The transaction boundary is also what makes optimistic locking work.</b> The JPA adapter
+ * detects a concurrent change by comparing the version it read at load time. If load and save sat in
+ * separate transactions there would be no version to compare, and two simultaneous withdrawals could
+ * each overwrite the other's result - so these annotations are load-bearing, not decoration.
  */
 @Service
 public class TransactionService {
@@ -51,6 +59,7 @@ public class TransactionService {
      * @throws com.natwest.ledger.domain.InvalidAmountException     if the amount is not positive
      * @throws com.natwest.ledger.domain.CurrencyMismatchException  if the currency differs
      */
+    @Transactional
     public LedgerEntry deposit(AccountId accountId, Money amount, String narrative) {
         Account account = load(accountId);
 
@@ -69,6 +78,7 @@ public class TransactionService {
      * @throws AccountNotFoundException    if no such account exists
      * @throws InsufficientFundsException  if the balance would go below zero
      */
+    @Transactional
     public LedgerEntry withdraw(AccountId accountId, Money amount, String narrative) {
         Account account = load(accountId);
 
@@ -99,6 +109,7 @@ public class TransactionService {
      * @throws AccountNotFoundException     if either account does not exist
      * @throws InsufficientFundsException   if the source cannot cover the amount
      */
+    @Transactional
     public TransferReceipt transfer(AccountId sourceId, AccountId destinationId, Money amount, String narrative) {
         Objects.requireNonNull(sourceId, "sourceId");
         Objects.requireNonNull(destinationId, "destinationId");

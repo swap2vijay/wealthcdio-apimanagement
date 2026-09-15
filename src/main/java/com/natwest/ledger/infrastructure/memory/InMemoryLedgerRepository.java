@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * of transactions per account". A single global list would have to be filtered on every read.
  */
 @Repository
-@Profile("!jpa")
+@Profile("memory")
 public class InMemoryLedgerRepository implements LedgerRepository {
 
     private final Map<AccountId, List<LedgerEntry>> entriesByAccount = new ConcurrentHashMap<>();
@@ -64,6 +64,31 @@ public class InMemoryLedgerRepository implements LedgerRepository {
         synchronized (entries) {
             return List.copyOf(entries);
         }
+    }
+
+    /**
+     * A window of an account's entries.
+     *
+     * <p>Insertion order is the total order here, which matches what the JPA adapter achieves with its
+     * sequence column. Slicing an already-loaded list is not real paging - it saves no work - but this
+     * adapter exists for tests, and behaving identically to the real one is what makes those tests
+     * meaningful.
+     */
+    @Override
+    public List<LedgerEntry> findByAccountId(AccountId accountId, int offset, int limit) {
+        if (limit <= 0 || offset < 0) {
+            return List.of();
+        }
+        List<LedgerEntry> all = findByAccountId(accountId);
+        if (offset >= all.size()) {
+            return List.of();
+        }
+        return List.copyOf(all.subList(offset, Math.min(offset + limit, all.size())));
+    }
+
+    @Override
+    public long countByAccountId(AccountId accountId) {
+        return findByAccountId(accountId).size();
     }
 
     /** Clears the ledger. For tests that want a fresh slate without rebuilding the context. */

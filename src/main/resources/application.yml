@@ -2,6 +2,34 @@ spring:
   application:
     name: ledger-service
 
+  datasource:
+    # H2 in-memory keeps the service runnable with no external setup. The adapter is written
+    # against standard JPA, so pointing this at PostgreSQL is a configuration change.
+    url: jdbc:h2:mem:ledger;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    hibernate:
+      # Acceptable only because the database is in-memory and recreated on every start.
+      # A real deployment needs versioned migrations (Flyway or Liquibase) and ddl-auto: validate,
+      # so that a schema change is a reviewed artefact rather than something Hibernate infers at
+      # boot. Called out as a known limitation in the README.
+      ddl-auto: create-drop
+
+    # Off deliberately. Leaving a persistence context open for the duration of a web request lets a
+    # lazy association be resolved from a controller or a serialiser, which turns rendering a
+    # response into database access and hides N+1 queries in the view layer.
+    open-in-view: false
+
+    properties:
+      hibernate:
+        jdbc:
+          # Batch the two ledger inserts a transfer produces into one round trip.
+          batch_size: 20
+        order_inserts: true
+
 ledger:
   # The single currency this service operates in. Every account balance and every requested
   # amount must match it; the service performs no FX conversion (see Money).

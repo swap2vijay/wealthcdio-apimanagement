@@ -14,8 +14,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * An in-memory account store.
  *
  * <p>Present so the application layer could be built and tested end to end before committing to a
- * database. Phase 4 adds the JPA adapter and confines this one to the {@code memory} profile;
- * because both sit behind {@link AccountRepository}, that swap changes no business logic.
+ * database. Now that the JPA adapter exists it is the default and this one is opt-in under the
+ * {@code memory} profile - a banking service should persist unless told otherwise. Not one line of
+ * business logic changed when the database arrived, which was the point of putting a port here.
+ *
+ * <p>Retained rather than deleted because it keeps the fast unit tests free of a database, and
+ * because it is the clearest possible demonstration that the application layer really is unaware of
+ * how storage works.
  *
  * <p><b>It hands out copies, not references.</b> A naive map-backed repository returns the same
  * mutable {@link Account} instance it stored, so a caller that mutates an account and forgets to
@@ -24,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * gives, so a missing {@code save} is caught here rather than in production.
  */
 @Repository
-@Profile("!jpa")
+@Profile("memory")
 public class InMemoryAccountRepository implements AccountRepository {
 
     private final Map<AccountId, Account> accountsById = new ConcurrentHashMap<>();

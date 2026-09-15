@@ -30,8 +30,29 @@ public interface LedgerRepository {
     /**
      * All entries for an account, oldest first.
      *
-     * <p>Chronological because that is how a statement reads. Phase 3 adds paging for accounts
-     * whose history outgrows a single response.
+     * <p>Chronological because that is how a statement reads. Unbounded, so it is for internal use -
+     * reconciliation, which genuinely needs every entry. Anything serving a caller should use
+     * {@link #findByAccountId(AccountId, int, int)}.
      */
     List<LedgerEntry> findByAccountId(AccountId accountId);
+
+    /**
+     * A window of an account's entries, oldest first.
+     *
+     * <p>Exists because an account's history only ever grows. An endpoint that returns all of it has
+     * a response size set by the customer's transaction count, which is fine in a test and a
+     * liability in production. Paging is expressed as offset and limit rather than as a Spring Data
+     * {@code Pageable} to keep the framework out of a port the domain side depends on.
+     *
+     * <p>Ordering must be total and stable, not merely by timestamp: transfer legs share an instant,
+     * so a tie-break is required or two reads can disagree. The JPA adapter orders by an
+     * insertion sequence for exactly this reason.
+     *
+     * @param offset how many entries to skip, zero-based
+     * @param limit  the maximum number to return
+     */
+    List<LedgerEntry> findByAccountId(AccountId accountId, int offset, int limit);
+
+    /** How many entries an account has, so a caller can tell whether more pages exist. */
+    long countByAccountId(AccountId accountId);
 }

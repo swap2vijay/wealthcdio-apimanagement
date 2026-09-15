@@ -5,6 +5,7 @@ import com.natwest.ledger.error.LedgerException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -114,6 +115,32 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 request.getMethod(), request.getRequestURI(), exception.getMessage());
 
         return ResponseEntity.badRequest().body(problem);
+    }
+
+    /**
+     * Two requests changed the same account at once and this one lost the race.
+     *
+     * <p>Surfaces from the persistence layer at commit time rather than being thrown by the domain, so
+     * it is translated here into the service's own vocabulary. Without this handler it would fall
+     * through to the catch-all and be reported as a 500 - blaming the service for what is really a
+     * transient conflict, and telling the caller nothing useful.
+     *
+     * <p>Reported as 409 with {@code retryable: true}, because nothing was applied and the same request
+     * will very probably succeed on a second attempt. That is the whole bargain of optimistic locking:
+     * an occasional retry in exchange for never taking a lock and never losing an update.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ProblemDetail> handleConcurrentModification(OptimisticLockingFailureException exception,
+                                                                     HttpServletRequest request) {
+        ProblemDetail problem = problemOf(HttpStatus.CONFLICT, ErrorCode.CONCURRENT_MODIFICATION,
+                "Another request modified this account first, so this one was not applied. Please retry.",
+                request.getRequestURI());
+        problem.setProperty("details", Map.of("retryable", true));
+
+        log.warn("{} {} lost an optimistic lock race and was not applied: {}",
+                request.getMethod(), request.getRequestURI(), exception.getMessage());
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     /**

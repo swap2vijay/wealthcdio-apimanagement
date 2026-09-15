@@ -39,9 +39,11 @@ final class ErrorCodeHttpStatus {
 
             case ACCOUNT_NOT_FOUND -> HttpStatus.NOT_FOUND;
 
-            // 409, because the request would conflict with a resource that already exists. Retrying
-            // it unchanged will never succeed, which is what separates this from a 400.
-            case DUPLICATE_ACCOUNT -> HttpStatus.CONFLICT;
+            // Both are conflicts with the current state of a resource, so both are 409. They differ
+            // in what a client should do next: a duplicate account will never succeed however many
+            // times it is retried, whereas a concurrent modification very likely will. The distinct
+            // error codes carry that difference, which is precisely why status alone is not enough.
+            case DUPLICATE_ACCOUNT, CONCURRENT_MODIFICATION -> HttpStatus.CONFLICT;
 
             case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
