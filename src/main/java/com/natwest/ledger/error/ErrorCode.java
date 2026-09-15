@@ -15,6 +15,7 @@ package com.natwest.ledger.error;
  * <ul>
  *   <li>{@code 1xxx} - the caller asked for something the domain rules forbid</li>
  *   <li>{@code 2xxx} - the referenced resource does not exist, or already does</li>
+ *   <li>{@code 3xxx} - a service this one depends on refused, or could not be reached</li>
  *   <li>{@code 4xxx} - the request could not be understood</li>
  *   <li>{@code 9xxx} - the service itself failed; the caller did nothing wrong</li>
  * </ul>
@@ -39,6 +40,17 @@ public enum ErrorCode {
      * to overwrite it. Safe and sensible to retry.
      */
     CONCURRENT_MODIFICATION("LDG-2003", "The account was modified concurrently; the request was not applied"),
+
+    /* ---------- 3xxx: a downstream service refused, or could not be reached ---------- */
+
+    /** Compliance screened the transfer and said no. A definitive answer; retrying is pointless. */
+    COMPLIANCE_REJECTED("LDG-3001", "The transfer was refused by compliance screening"),
+
+    /**
+     * Compliance could not be reached, so the transfer was refused rather than allowed through
+     * unscreened. Transient: worth retrying.
+     */
+    COMPLIANCE_UNAVAILABLE("LDG-3002", "Compliance screening is unavailable, so the transfer was not attempted"),
 
     /* ---------- 4xxx: the request itself was malformed ---------- */
 

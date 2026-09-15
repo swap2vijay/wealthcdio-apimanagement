@@ -37,6 +37,16 @@ final class ErrorCodeHttpStatus {
             // "the customer needs more money", which need very different handling.
             case INSUFFICIENT_FUNDS -> HttpStatus.UNPROCESSABLE_ENTITY;
 
+            // 422 alongside insufficient funds, for the same reason: the request was understood and a
+            // rule refused it. The caller cannot fix it by changing the syntax.
+            case COMPLIANCE_REJECTED -> HttpStatus.UNPROCESSABLE_ENTITY;
+
+            // 503, not 500. The fault is a dependency being unreachable, and the distinction matters:
+            // 503 tells the caller this is transient and worth retrying, and it is the status
+            // load balancers and clients already understand as "try again shortly". Reporting a
+            // downstream outage as 500 would imply a defect in this service and invite no retry.
+            case COMPLIANCE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+
             case ACCOUNT_NOT_FOUND -> HttpStatus.NOT_FOUND;
 
             // Both are conflicts with the current state of a resource, so both are 409. They differ

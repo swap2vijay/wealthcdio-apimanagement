@@ -30,7 +30,80 @@ spring:
           batch_size: 20
         order_inserts: true
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      # Surfaces circuit breaker state in /actuator/health, so an open circuit is visible to
+      # operators rather than only inferable from logs.
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    circuitbreakers:
+      enabled: true
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        register-health-indicator: true
+    instances:
+      compliance:
+        # Count-based rather than time-based: screening traffic is bursty, and a time window can
+        # trip on a handful of failures during a quiet minute.
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+
+        # Never judge the dependency on fewer than five calls. Without this, the first failed call
+        # is a 100% failure rate and the circuit opens on a single blip.
+        minimum-number-of-calls: 5
+
+        failure-rate-threshold: 50
+
+        # Long enough for a restarting dependency to come back, short enough that recovery is not
+        # gated on a human noticing.
+        wait-duration-in-open-state: 10s
+        automatic-transition-from-open-to-half-open-enabled: true
+
+        # On reopening, let a few calls through to test the water rather than releasing the full load
+        # onto a service that may still be fragile.
+        permitted-number-of-calls-in-half-open-state: 3
+
+        # A malformed request on our side is a defect in this service, not evidence that compliance
+        # is unwell. Counting it would let one of our bugs trip the circuit and stop us calling a
+        # perfectly healthy dependency.
+        ignore-exceptions:
+          - com.natwest.ledger.infrastructure.compliance.ComplianceContractException
+
+  retry:
+    instances:
+      compliance:
+        # Three attempts total, not three retries. Screening is idempotent - it reads rules and
+        # returns a decision, changing nothing - so repeating it is safe.
+        max-attempts: 3
+        wait-duration: 200ms
+
+        # Backoff so that a dependency struggling under load is not hit by synchronised retries from
+        # every caller at the same instant.
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+
+        # Retrying a 400 just produces another 400.
+        ignore-exceptions:
+          - com.natwest.ledger.infrastructure.compliance.ComplianceContractException
+
 ledger:
   # The single currency this service operates in. Every account balance and every requested
   # amount must match it; the service performs no FX conversion (see Money).
   base-currency: GBP
+
+  compliance:
+    base-url: http://localhost:8081
+    # Neither may be unlimited: a hung dependency exhausts the request threads and is never recorded
+    # as a failure, so the circuit breaker would never trip. See ComplianceClientProperties.
+    connect-timeout: 500ms
+    read-timeout: 2s
