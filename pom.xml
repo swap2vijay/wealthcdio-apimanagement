@@ -32,7 +32,7 @@
         -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
+            <artifactId>spring-boot-starter-web</artifactId>
             <exclusions>
                 <!-- log4j2 is the mandated logging backend, so Logback is removed. -->
                 <exclusion>
@@ -40,6 +40,16 @@
                     <artifactId>spring-boot-starter-logging</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <!--
+          Bean validation guards the shape of a request (required fields, lengths). Business
+          rules such as "an amount must be positive" stay in the domain, so they cannot drift
+          between an annotation and the model that actually enforces them.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
         <dependency>

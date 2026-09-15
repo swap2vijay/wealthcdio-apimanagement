@@ -15,6 +15,8 @@ package com.natwest.ledger.error;
  * <ul>
  *   <li>{@code 1xxx} - the caller asked for something the domain rules forbid</li>
  *   <li>{@code 2xxx} - the referenced resource does not exist, or already does</li>
+ *   <li>{@code 4xxx} - the request could not be understood</li>
+ *   <li>{@code 9xxx} - the service itself failed; the caller did nothing wrong</li>
  * </ul>
  */
 public enum ErrorCode {
@@ -30,7 +32,15 @@ public enum ErrorCode {
     /* ---------- 2xxx: the resource does not exist, or already does ---------- */
 
     ACCOUNT_NOT_FOUND("LDG-2001", "No account exists with the supplied identifier"),
-    DUPLICATE_ACCOUNT("LDG-2002", "An account already exists with the supplied identifier");
+    DUPLICATE_ACCOUNT("LDG-2002", "An account already exists with the supplied identifier"),
+
+    /* ---------- 4xxx: the request itself was malformed ---------- */
+
+    MALFORMED_REQUEST("LDG-4001", "The request could not be read or failed validation"),
+
+    /* ---------- 9xxx: the service failed, not the caller ---------- */
+
+    INTERNAL_ERROR("LDG-9001", "The service failed to process the request");
 
     private final String code;
     private final String title;
