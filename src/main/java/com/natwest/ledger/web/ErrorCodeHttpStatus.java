@@ -55,7 +55,10 @@ final class ErrorCodeHttpStatus {
             // error codes carry that difference, which is precisely why status alone is not enough.
             case DUPLICATE_ACCOUNT, CONCURRENT_MODIFICATION -> HttpStatus.CONFLICT;
 
-            case INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
+            // 500, and deliberately not 503. A failed compensation is not transient and must not
+            // invite a retry: an account has been debited with the money nowhere, and repeating the
+            // request would only debit it again. It needs a human, or a recovery process.
+            case TRANSFER_COMPENSATION_FAILED, INTERNAL_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }
 }

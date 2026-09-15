@@ -44,13 +44,23 @@ class TransactionServiceTest {
     private AccountService accountService;
     private TransactionService transactionService;
 
+    private ProgrammableComplianceGateway compliance;
+
     @BeforeEach
     void setUp() {
         accounts = new InMemoryAccountRepository();
         ledger = new InMemoryLedgerRepository();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+
+        // Transfers now go through the saga, which screens them. These tests are about the money
+        // movement rather than the screening, so compliance approves by default; the saga's own tests
+        // cover what happens when it does not.
+        compliance = new ProgrammableComplianceGateway();
+        TransferSaga transferSaga = new TransferSaga(
+                new TransferSagaSteps(accounts, ledger), compliance, clock);
+
         accountService = new AccountService(accounts, ledger, clock);
-        transactionService = new TransactionService(accounts, ledger, clock);
+        transactionService = new TransactionService(accounts, ledger, transferSaga, clock);
     }
 
     /**

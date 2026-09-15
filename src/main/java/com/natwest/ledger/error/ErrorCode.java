@@ -52,6 +52,12 @@ public enum ErrorCode {
      */
     COMPLIANCE_UNAVAILABLE("LDG-3002", "Compliance screening is unavailable, so the transfer was not attempted"),
 
+    /**
+     * The worst outcome a saga has: a step failed and undoing it also failed, so an account has been
+     * debited without the money arriving anywhere. Needs intervention, not a retry.
+     */
+    TRANSFER_COMPENSATION_FAILED("LDG-3003", "The transfer failed and could not be automatically reversed"),
+
     /* ---------- 4xxx: the request itself was malformed ---------- */
 
     MALFORMED_REQUEST("LDG-4001", "The request could not be read or failed validation"),

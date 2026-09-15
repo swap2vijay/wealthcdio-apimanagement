@@ -1,6 +1,7 @@
 package com.natwest.ledger.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.natwest.ledger.application.ProgrammableComplianceGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -8,6 +9,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -57,6 +61,27 @@ class LedgerApiTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private ProgrammableComplianceGateway compliance;
+
+    /**
+     * Stands in for the compliance service.
+     *
+     * <p>The real gateway would try to reach another process, which would make these tests depend on
+     * something being started alongside them. Replacing the port keeps the whole ledger stack real -
+     * controllers, advice, saga, JPA - while letting each test choose what compliance says. The
+     * gateway's own HTTP behaviour is covered by its unit tests against a stub socket.
+     */
+    @TestConfiguration
+    static class ComplianceStubConfiguration {
+
+        @Bean
+        @Primary
+        ProgrammableComplianceGateway programmableComplianceGateway() {
+            return new ProgrammableComplianceGateway();
+        }
+    }
+
     @BeforeEach
     void clearTables() {
         // Truncating rather than reaching for the repositories keeps this test independent of which
@@ -64,6 +89,7 @@ class LedgerApiTest {
         // purely for the benefit of a test.
         jdbcTemplate.execute("DELETE FROM ledger_entry");
         jdbcTemplate.execute("DELETE FROM account");
+        compliance.reset();
     }
 
     // ---------------------------------------------------------------- helpers
@@ -619,6 +645,103 @@ class LedgerApiTest {
                     .andExpect(jsonPath("$.transactions.length()").value(2))
                     .andExpect(jsonPath("$.transactions[1].type").value("TRANSFER_OUT"))
                     .andExpect(jsonPath("$.transactions[1].narrative").value("Transfer to ACC-2002"));
+        }
+
+        @Test
+        @DisplayName("screens every transfer before completing it")
+        void screensEveryTransfer() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+            givenAccount("ACC-2002", "0");
+
+            transfer("ACC-1001", "ACC-2002", "30.00", null).andExpect(status().isCreated());
+
+            assertThat(compliance.callCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("returns 422 and reverses the debit when compliance refuses")
+        void reversesWhenComplianceRefuses() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+            givenAccount("ACC-2002", "20.00");
+            compliance.reject("COUNTERPARTY_BLOCKED");
+
+            transfer("ACC-1001", "ACC-2002", "30.00", null)
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("LDG-3001"))
+                    .andExpect(jsonPath("$.details.reason").value("COUNTERPARTY_BLOCKED"))
+                    .andExpect(jsonPath("$.details.retryable").value(false));
+
+            assertThat(balanceOf("ACC-1001"))
+                    .as("a refused transfer must leave the payer exactly as they were")
+                    .isEqualByComparingTo("100.00");
+            assertThat(balanceOf("ACC-2002")).isEqualByComparingTo("20.00");
+        }
+
+        @Test
+        @DisplayName("shows the debit and its reversal on the statement, not a silent no-op")
+        void showsTheReversalOnTheStatement() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+            givenAccount("ACC-2002", "0");
+            compliance.reject("SINGLE_TRANSFER_LIMIT_EXCEEDED");
+
+            transfer("ACC-1001", "ACC-2002", "30.00", null)
+                    .andExpect(status().isUnprocessableEntity());
+
+            mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-1001"))
+                    .andExpect(jsonPath("$.transactions.length()").value(3))
+                    .andExpect(jsonPath("$.transactions[1].type").value("TRANSFER_OUT"))
+                    .andExpect(jsonPath("$.transactions[2].type").value("TRANSFER_REVERSAL"))
+                    .andExpect(jsonPath("$.transactions[2].direction").value("CREDIT"))
+                    .andExpect(jsonPath("$.transactions[2].narrative")
+                            .value(org.hamcrest.Matchers.containsString("SINGLE_TRANSFER_LIMIT_EXCEEDED")));
+
+            mockMvc.perform(get(ACCOUNTS + "/{id}/transactions", "ACC-2002"))
+                    .andExpect(jsonPath("$.transactions.length()").value(0));
+        }
+
+        @Test
+        @DisplayName("returns 503 and reverses the debit when compliance cannot be reached")
+        void failsClosedWhenComplianceIsUnavailable() throws Exception {
+            givenAccount("ACC-1001", "100.00");
+            givenAccount("ACC-2002", "20.00");
+            compliance.beUnavailable("CIRCUIT_OPEN");
+
+            // Fails closed: an outage in a control must not silently switch the control off.
+            transfer("ACC-1001", "ACC-2002", "30.00", null)
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("LDG-3002"))
+                    .andExpect(jsonPath("$.details.retryable").value(true));
+
+            assertThat(balanceOf("ACC-1001")).isEqualByComparingTo("100.00");
+            assertThat(balanceOf("ACC-2002")).isEqualByComparingTo("20.00");
+        }
+
+        @Test
+        @DisplayName("keeps deposits and withdrawals working while compliance is down")
+        void otherOperationsSurviveAComplianceOutage() throws Exception {
+            // Only transfers need screening, so an outage there must not take the whole service down.
+            givenAccount("ACC-1001", "100.00");
+            compliance.beUnavailable("CIRCUIT_OPEN");
+
+            deposit("ACC-1001", "50.00").andExpect(status().isCreated());
+            withdraw("ACC-1001", "20.00").andExpect(status().isCreated());
+
+            assertThat(balanceOf("ACC-1001")).isEqualByComparingTo("130.00");
+        }
+
+        @Test
+        @DisplayName("does not ask compliance about a transfer that could never happen")
+        void doesNotScreenAnImpossibleTransfer() throws Exception {
+            givenAccount("ACC-1001", "10.00");
+            givenAccount("ACC-2002", "0");
+
+            transfer("ACC-1001", "ACC-2002", "50.00", null)
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("LDG-1003"));
+
+            assertThat(compliance.callCount())
+                    .as("screening money that is not there wastes a call on the dependency")
+                    .isZero();
         }
     }
 

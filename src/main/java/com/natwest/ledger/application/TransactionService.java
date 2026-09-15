@@ -13,8 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.Instant;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -24,13 +22,14 @@ import java.util.Objects;
  * it decided. The validation lives in {@link Account}, so this class contains no {@code if} guarding
  * a balance.
  *
- * <p><b>Transfers here are single-process and genuinely atomic.</b> Every method is
- * {@code @Transactional}, so a transfer's two balance updates and two ledger entries commit together
- * or not at all. That is the simplest thing that satisfies the requirement, and it pins down the
- * sequencing decisions - which leg first, which account to load first - before any network hop
- * exists. Phase 6 revisits this as an orchestrated saga once a second service is genuinely involved,
- * at which point a single database transaction can no longer span the work and "both or neither" has
- * to be reconstructed with compensation.
+ * <p><b>Deposits and withdrawals are single, atomic transactions.</b> Each touches one account, so
+ * {@code @Transactional} gives "both the balance and its ledger entry, or neither" for free. They need
+ * no compliance screening, which is why an outage in that dependency does not stop them.
+ *
+ * <p><b>A transfer is not.</b> It spans a call to the compliance service, so it cannot be one database
+ * transaction and is delegated to {@link TransferSaga}, which commits each step separately and
+ * compensates when a later one fails. That asymmetry is the honest shape of the problem rather than an
+ * inconsistency: only the transfer crosses a process boundary.
  *
  * <p><b>The transaction boundary is also what makes optimistic locking work.</b> The JPA adapter
  * detects a concurrent change by comparing the version it read at load time. If load and save sat in
@@ -44,11 +43,16 @@ public class TransactionService {
 
     private final AccountRepository accounts;
     private final LedgerRepository ledger;
+    private final TransferSaga transferSaga;
     private final Clock clock;
 
-    public TransactionService(AccountRepository accounts, LedgerRepository ledger, Clock clock) {
+    public TransactionService(AccountRepository accounts,
+                              LedgerRepository ledger,
+                              TransferSaga transferSaga,
+                              Clock clock) {
         this.accounts = accounts;
         this.ledger = ledger;
+        this.transferSaga = transferSaga;
         this.clock = clock;
     }
 
@@ -92,64 +96,30 @@ public class TransactionService {
     }
 
     /**
-     * Moves money between two accounts.
+     * Moves money between two accounts, screening it with compliance on the way.
      *
-     * <p>Two ordering decisions matter here, and neither is accidental.
+     * <p>Delegates to {@link TransferSaga}. <b>Deliberately not {@code @Transactional}</b>: a transfer
+     * now spans a call to another service, so it is a saga of separately committed steps rather than one
+     * atomic unit. A transaction here would wrap the whole sequence and defeat that - the debit would no
+     * longer be durable before the remote call, and compensation would be redundant because a rollback
+     * would already have undone it. See {@link TransferSaga} for the full reasoning.
      *
-     * <p><b>The accounts are loaded in a canonical order</b> (by identifier), not in the order the
-     * caller named them. Two opposing simultaneous transfers - A to B and B to A - would otherwise
-     * grab their rows in opposite sequences and deadlock. Sorting first means every transfer in the
-     * system acquires locks in the same direction, so the cycle cannot form. Harmless with the
-     * in-memory adapter; essential once Phase 4 puts real row locks behind this.
+     * <p>Kept on this service so that the three money-movement operations still read as one API to the
+     * controller, even though one of them is now considerably more involved than the others.
      *
-     * <p><b>The source is debited before the destination is credited.</b> If funds are short, the
-     * failure happens before anything has been credited, so there is no partial state to undo.
-     *
-     * @throws SameAccountTransferException if source and destination are the same account
-     * @throws AccountNotFoundException     if either account does not exist
-     * @throws InsufficientFundsException   if the source cannot cover the amount
+     * @throws SameAccountTransferException           source and destination are the same account
+     * @throws AccountNotFoundException               either account does not exist
+     * @throws InsufficientFundsException             the source cannot cover the amount
+     * @throws ComplianceRejectedException            compliance refused it; the debit has been reversed
+     * @throws ComplianceUnavailableException         compliance was unreachable; the debit has been reversed
+     * @throws TransferCompensationFailedException    the reversal also failed; needs reconciliation
      */
-    @Transactional
     public TransferReceipt transfer(AccountId sourceId, AccountId destinationId, Money amount, String narrative) {
-        Objects.requireNonNull(sourceId, "sourceId");
-        Objects.requireNonNull(destinationId, "destinationId");
-
-        if (sourceId.equals(destinationId)) {
-            throw new SameAccountTransferException(sourceId);
-        }
-
-        Account source;
-        Account destination;
-        if (sourceId.value().compareTo(destinationId.value()) <= 0) {
-            source = load(sourceId);
-            destination = load(destinationId);
-        } else {
-            destination = load(destinationId);
-            source = load(sourceId);
-        }
-
-        TransactionReference reference = TransactionReference.newReference();
-        Instant occurredAt = clock.instant();
-
-        LedgerEntry debit = source.transferOut(amount, reference, occurredAt,
-                narrativeOr(narrative, "Transfer to " + destinationId));
-        LedgerEntry credit = destination.transferIn(amount, reference, occurredAt,
-                narrativeOr(narrative, "Transfer from " + sourceId));
-
-        accounts.save(source);
-        accounts.save(destination);
-        ledger.appendAll(List.of(debit, credit));
-
-        log.info("Transferred {} from {} to {} [ref={}]", amount, sourceId, destinationId, reference);
-        return new TransferReceipt(reference, debit, credit);
+        return transferSaga.execute(sourceId, destinationId, amount, narrative);
     }
 
     private Account load(AccountId accountId) {
         Objects.requireNonNull(accountId, "accountId");
         return accounts.findById(accountId).orElseThrow(() -> new AccountNotFoundException(accountId));
-    }
-
-    private static String narrativeOr(String supplied, String fallback) {
-        return (supplied == null || supplied.isBlank()) ? fallback : supplied;
     }
 }

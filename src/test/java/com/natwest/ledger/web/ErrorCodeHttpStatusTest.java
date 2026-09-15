@@ -68,6 +68,15 @@ class ErrorCodeHttpStatusTest {
     }
 
     @Test
+    @DisplayName("reports a failed reversal as 500, not 503, so a retry is not invited")
+    void failedCompensationIsNotRetryable() {
+        // A retry would debit the account a second time while the first debit is still stranded.
+        assertThat(ErrorCodeHttpStatus.of(ErrorCode.TRANSFER_COMPENSATION_FAILED))
+                .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR)
+                .isNotEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
     @DisplayName("refuses a transfer as 503 when compliance cannot be reached, since the fault is ours")
     void complianceUnavailableIsServiceUnavailable() {
         // 503 rather than 500: it tells the caller the condition is transient and worth retrying, and
@@ -91,7 +100,8 @@ class ErrorCodeHttpStatusTest {
      */
     private static final Set<ErrorCode> NOT_THE_CALLERS_FAULT = EnumSet.of(
             ErrorCode.INTERNAL_ERROR,
-            ErrorCode.COMPLIANCE_UNAVAILABLE);
+            ErrorCode.COMPLIANCE_UNAVAILABLE,
+            ErrorCode.TRANSFER_COMPENSATION_FAILED);
 
     @Test
     @DisplayName("never blames the caller for our failure, nor us for the caller's")
