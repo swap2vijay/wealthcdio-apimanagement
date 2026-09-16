@@ -1,8 +1,9 @@
 package com.natwest.ledger.config;
 
-import com.natwest.ledger.application.ComplianceGateway;
-import com.natwest.ledger.infrastructure.compliance.ComplianceCallFailedException;
-import com.natwest.ledger.infrastructure.compliance.ComplianceContractException;
+import com.natwest.ledger.client.ComplianceGateway;
+import com.natwest.ledger.exception.ComplianceCallFailedException;
+import com.natwest.ledger.exception.ComplianceContractException;
+
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.RetryConfig;
@@ -113,3 +114,4 @@ class ComplianceResilienceConfigurationTest {
         assertThat(clientProperties.baseUrl()).isNotBlank();
     }
 }
+

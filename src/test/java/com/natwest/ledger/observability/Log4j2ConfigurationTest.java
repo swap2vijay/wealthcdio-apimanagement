@@ -102,3 +102,4 @@ class Log4j2ConfigurationTest {
                 .isNotNull();
     }
 }
+

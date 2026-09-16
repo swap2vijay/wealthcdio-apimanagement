@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * service entirely through the environment, and nothing else in the build reads those files.
  *
  * <p>The stakes are higher here than for a wrong URL. {@code singleTransferLimit} has a default, so a
- * name that binds to nothing does not fail - it silently screens every transfer against £10,000 while
+ * name that binds to nothing does not fail - it silently screens every transfer against Â£10,000 while
  * the deployment believes some other figure is in force. A limit that quietly ignores its
  * configuration is a compliance incident rather than a bug report, which is reason enough for a test
  * whose only job is to assert that a string matches.
@@ -86,3 +86,4 @@ class EnvironmentVariableBindingTest {
         assertThat(properties.normalisedBlockedAccounts()).contains("ACC-SANCTIONED");
     }
 }
+

@@ -44,3 +44,4 @@ public record ComplianceProperties(BigDecimal singleTransferLimit, List<String> 
                 .collect(Collectors.toUnmodifiableSet());
     }
 }
+

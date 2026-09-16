@@ -66,3 +66,4 @@ class ComplianceClientPropertiesTest {
                 .isEqualTo("http://compliance:8081");
     }
 }
+

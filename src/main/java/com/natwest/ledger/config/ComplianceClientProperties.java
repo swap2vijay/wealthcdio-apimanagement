@@ -39,3 +39,4 @@ public record ComplianceClientProperties(String baseUrl, Duration connectTimeout
         return (configured == null || configured.isZero() || configured.isNegative()) ? fallback : configured;
     }
 }
+

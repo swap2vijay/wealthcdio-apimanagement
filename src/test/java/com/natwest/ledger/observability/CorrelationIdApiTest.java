@@ -88,3 +88,4 @@ class CorrelationIdApiTest {
         assertThat(first).isNotBlank().isNotEqualTo(second);
     }
 }
+

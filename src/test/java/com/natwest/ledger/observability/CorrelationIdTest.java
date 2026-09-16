@@ -102,3 +102,4 @@ class CorrelationIdTest {
         assertThat(CorrelationId.current()).isEmpty();
     }
 }
+

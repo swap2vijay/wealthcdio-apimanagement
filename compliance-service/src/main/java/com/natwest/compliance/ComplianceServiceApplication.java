@@ -19,3 +19,4 @@ public class ComplianceServiceApplication {
         SpringApplication.run(ComplianceServiceApplication.class, args);
     }
 }
+

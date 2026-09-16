@@ -98,3 +98,4 @@ class CorrelationIdFilterTest {
                 .andExpect(header().string(CorrelationIdFilter.HEADER, "invalid-payload-1"));
     }
 }
+

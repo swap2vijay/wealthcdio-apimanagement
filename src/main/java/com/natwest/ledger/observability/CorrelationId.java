@@ -67,3 +67,4 @@ public final class CorrelationId {
         return Optional.ofNullable(ThreadContext.get(MDC_KEY));
     }
 }
+

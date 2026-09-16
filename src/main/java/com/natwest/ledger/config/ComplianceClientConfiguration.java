@@ -1,6 +1,7 @@
 package com.natwest.ledger.config;
 
 import com.natwest.ledger.observability.CorrelationId;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.boot.web.client.ClientHttpRequestFactories;
@@ -62,3 +63,4 @@ public class ComplianceClientConfiguration {
         };
     }
 }
+

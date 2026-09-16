@@ -32,3 +32,4 @@ public record LedgerProperties(String baseCurrency) {
         return Currency.getInstance(baseCurrency);
     }
 }
+

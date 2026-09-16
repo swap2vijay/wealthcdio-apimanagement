@@ -91,7 +91,7 @@ resilience4j:
         # is unwell. Counting it would let one of our bugs trip the circuit and stop us calling a
         # perfectly healthy dependency.
         ignore-exceptions:
-          - com.natwest.ledger.infrastructure.compliance.ComplianceContractException
+          - com.natwest.ledger.exception.ComplianceContractException
 
   retry:
     instances:
@@ -108,7 +108,7 @@ resilience4j:
 
         # Retrying a 400 just produces another 400.
         ignore-exceptions:
-          - com.natwest.ledger.infrastructure.compliance.ComplianceContractException
+          - com.natwest.ledger.exception.ComplianceContractException
 
 ledger:
   # The single currency this service operates in. Every account balance and every requested
@@ -121,3 +121,4 @@ ledger:
     # as a failure, so the circuit breaker would never trip. See ComplianceClientProperties.
     connect-timeout: 500ms
     read-timeout: 2s
+
