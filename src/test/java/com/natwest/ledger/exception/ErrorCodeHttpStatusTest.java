@@ -68,41 +68,13 @@ class ErrorCodeHttpStatusTest {
                 .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
-    @Test
-    @DisplayName("reports a failed reversal as 500, not 503, so a retry is not invited")
-    void failedCompensationIsNotRetryable() {
-        // A retry would debit the account a second time while the first debit is still stranded.
-        assertThat(ErrorCodeHttpStatus.of(ErrorCode.TRANSFER_COMPENSATION_FAILED))
-                .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR)
-                .isNotEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-    }
-
-    @Test
-    @DisplayName("refuses a transfer as 503 when compliance cannot be reached, since the fault is ours")
-    void complianceUnavailableIsServiceUnavailable() {
-        // 503 rather than 500: it tells the caller the condition is transient and worth retrying, and
-        // it is the status load balancers and clients already understand as "try again shortly".
-        assertThat(ErrorCodeHttpStatus.of(ErrorCode.COMPLIANCE_UNAVAILABLE))
-                .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-    }
-
-    @Test
-    @DisplayName("reports a compliance refusal as 422, the same shape as any other rule saying no")
-    void complianceRejectedIsUnprocessable() {
-        assertThat(ErrorCodeHttpStatus.of(ErrorCode.COMPLIANCE_REJECTED))
-                .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
-    }
-
     /**
      * Codes where the failure is on this service's side of the boundary rather than the caller's.
      *
      * <p>Listed explicitly so that adding an error code forces a deliberate answer to "whose fault is
      * this?" - the question that decides whether a client should fix its request or retry unchanged.
      */
-    private static final Set<ErrorCode> NOT_THE_CALLERS_FAULT = EnumSet.of(
-            ErrorCode.INTERNAL_ERROR,
-            ErrorCode.COMPLIANCE_UNAVAILABLE,
-            ErrorCode.TRANSFER_COMPENSATION_FAILED);
+    private static final Set<ErrorCode> NOT_THE_CALLERS_FAULT = EnumSet.of(ErrorCode.INTERNAL_ERROR);
 
     @Test
     @DisplayName("never blames the caller for our failure, nor us for the caller's")
@@ -119,15 +91,6 @@ class ErrorCodeHttpStatusTest {
                     .as("%s must be exactly one of a client or server fault", errorCode)
                     .isEqualTo(!ourFault);
         }
-    }
-
-    @Test
-    @DisplayName("distinguishes a refusal we can explain from a dependency we cannot reach")
-    void refusalAndOutageAreDifferentStatuses() {
-        // Collapsing these would leave a caller unable to tell "this payment is not allowed" from
-        // "ask again in a minute" - two situations needing opposite handling.
-        assertThat(ErrorCodeHttpStatus.of(ErrorCode.COMPLIANCE_REJECTED))
-                .isNotEqualTo(ErrorCodeHttpStatus.of(ErrorCode.COMPLIANCE_UNAVAILABLE));
     }
 }
 

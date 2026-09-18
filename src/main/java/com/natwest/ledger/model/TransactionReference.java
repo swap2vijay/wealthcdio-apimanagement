@@ -6,12 +6,12 @@ import java.util.UUID;
 /**
  * Correlates every ledger entry belonging to one logical transaction.
  *
- * <p>A deposit produces a single entry under its own reference. A transfer produces a debit, a
- * credit, and possibly a reversal, all sharing one reference - which is what makes it possible to
- * answer "what happened to this payment?" by looking up a single value across both accounts.
+ * <p>A deposit or withdrawal produces a single entry under its own reference. A transfer produces a
+ * debit and a credit sharing one reference - which is what makes it possible to answer "what
+ * happened to this payment?" by looking up a single value across both accounts.
  *
- * <p>In Phase 6 this doubles as the saga's correlation id, and it is what a caller-supplied
- * idempotency key would key on.
+ * <p>This is also what a caller-supplied idempotency key would key on, if one were added (see the
+ * README's known limitations).
  */
 public record TransactionReference(String value) {
 

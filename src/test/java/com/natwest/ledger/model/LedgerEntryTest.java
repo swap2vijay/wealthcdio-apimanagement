@@ -29,7 +29,6 @@ class LedgerEntryTest {
     void derivesDirectionFromType() {
         assertThat(entry(TransactionType.DEPOSIT, "10.00").direction()).isEqualTo(Direction.CREDIT);
         assertThat(entry(TransactionType.TRANSFER_IN, "10.00").direction()).isEqualTo(Direction.CREDIT);
-        assertThat(entry(TransactionType.TRANSFER_REVERSAL, "10.00").direction()).isEqualTo(Direction.CREDIT);
         assertThat(entry(TransactionType.WITHDRAWAL, "10.00").direction()).isEqualTo(Direction.DEBIT);
         assertThat(entry(TransactionType.TRANSFER_OUT, "10.00").direction()).isEqualTo(Direction.DEBIT);
     }

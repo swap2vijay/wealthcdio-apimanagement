@@ -7,9 +7,6 @@
 *.yaml   text eol=lf
 *.md     text eol=lf
 *.properties text eol=lf
-Jenkinsfile  text eol=lf
-Dockerfile   text eol=lf
 
-*.pdf    binary
 *.jar    binary
 *.png    binary

@@ -332,21 +332,6 @@ class AccountTest {
 
             assertThat(debit.reference()).isEqualTo(credit.reference());
         }
-
-        @Test
-        @DisplayName("puts the money back as a fresh credit when a transfer is reversed")
-        void reversesByAppendingCredit() {
-            Account source = accountWith("100.00");
-            source.transferOut(Money.gbp("30.00"), REF, AT, null);
-
-            LedgerEntry reversal = source.reverseTransfer(Money.gbp("30.00"), REF, AT, "Reversed");
-
-            assertThat(source.balance())
-                    .as("a reversal must restore the balance exactly")
-                    .isEqualTo(Money.gbp("100.00"));
-            assertThat(reversal.type()).isEqualTo(TransactionType.TRANSFER_REVERSAL);
-            assertThat(reversal.direction()).isEqualTo(Direction.CREDIT);
-        }
     }
 
     @Nested
@@ -362,15 +347,14 @@ class AccountTest {
                     account.deposit(Money.gbp("500.00"), REF, AT, null),
                     account.withdraw(Money.gbp("120.50"), REF, AT, null),
                     account.transferOut(Money.gbp("80.00"), REF, AT, null),
-                    account.transferIn(Money.gbp("15.25"), REF, AT, null),
-                    account.reverseTransfer(Money.gbp("80.00"), REF, AT, null));
+                    account.transferIn(Money.gbp("15.25"), REF, AT, null));
 
             Money replayed = ledger.stream()
                     .map(LedgerEntry::signedAmount)
                     .reduce(Money.zero(Money.GBP), Money::plus);
 
             assertThat(replayed).isEqualTo(account.balance());
-            assertThat(account.balance()).isEqualTo(Money.gbp("394.75"));
+            assertThat(account.balance()).isEqualTo(Money.gbp("314.75"));
         }
 
         @Test

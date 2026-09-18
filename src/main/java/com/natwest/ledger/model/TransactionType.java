@@ -20,16 +20,7 @@ public enum TransactionType {
     TRANSFER_OUT(Direction.DEBIT),
 
     /** The credit leg of a transfer, written against the destination account. */
-    TRANSFER_IN(Direction.CREDIT),
-
-    /**
-     * A compensating credit that undoes a {@link #TRANSFER_OUT} whose downstream steps failed.
-     *
-     * <p>The original debit is never erased. Reversing by appending an offsetting entry keeps the
-     * ledger append-only and auditable: the statement shows that money left and came back, which
-     * is what actually happened.
-     */
-    TRANSFER_REVERSAL(Direction.CREDIT);
+    TRANSFER_IN(Direction.CREDIT);
 
     private final Direction direction;
 
@@ -49,4 +40,3 @@ public enum TransactionType {
         return direction == Direction.DEBIT;
     }
 }
-

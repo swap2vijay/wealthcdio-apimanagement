@@ -28,7 +28,6 @@
 
     <Loggers>
         <Logger name="com.natwest.ledger" level="DEBUG"/>
-        <Logger name="io.github.resilience4j" level="DEBUG"/>
         <Logger name="org.hibernate.SQL" level="WARN"/>
 
         <Root level="INFO">

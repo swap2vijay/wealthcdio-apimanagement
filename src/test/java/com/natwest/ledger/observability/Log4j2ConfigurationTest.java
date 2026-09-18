@@ -48,16 +48,14 @@ class Log4j2ConfigurationTest {
     }
 
     @Test
-    @DisplayName("puts the correlation id and transfer reference on every line")
+    @DisplayName("puts the correlation id on every line")
     void defaultPatternIncludesTheTracingKeys() throws Exception {
         // Asserted on the raw text because the value is the pattern itself: a config that parses but
         // omits %X{correlationId} produces logs that cannot be correlated, which is a silent failure.
         String xml = new String(
                 getClass().getResourceAsStream("/log4j2-spring.xml").readAllBytes());
 
-        assertThat(xml)
-                .contains("%X{correlationId}")
-                .contains("%X{transferReference}");
+        assertThat(xml).contains("%X{correlationId}");
     }
 
     @Test

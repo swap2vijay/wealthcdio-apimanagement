@@ -12,13 +12,12 @@
 
     <Properties>
         <!--
-          Every line carries the correlation id, so one request can be followed through the log, and the
-          transfer reference when a transfer is in progress, so a saga's several steps group together.
-          Both are blank when not in scope, which is why they are bracketed and terse rather than
-          labelled - a labelled empty field is noise on every unrelated line.
+          Every line carries the correlation id, so one request can be followed through the log. It is
+          blank when not in scope, which is why it is bracketed and terse rather than labelled - a
+          labelled empty field is noise on every unrelated line.
         -->
         <Property name="LOG_PATTERN">
-            %d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] [%X{correlationId}] [%X{transferReference}] %c{1.} - %msg%n%throwable
+            %d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] [%X{correlationId}] %c{1.} - %msg%n%throwable
         </Property>
 
         <!-- Overridable so a container can write somewhere other than a relative directory. -->
@@ -59,12 +58,6 @@
 
         <!-- This service's own logs, where the interesting narrative is. -->
         <Logger name="com.natwest.ledger" level="DEBUG"/>
-
-        <!--
-          Resilience4j at DEBUG so circuit breaker state transitions are visible. An open circuit is
-          the single most useful thing to see in a log when transfers start failing.
-        -->
-        <Logger name="io.github.resilience4j" level="DEBUG"/>
 
         <!--
           SQL is off by default. It is invaluable when diagnosing a query and pure noise otherwise, and

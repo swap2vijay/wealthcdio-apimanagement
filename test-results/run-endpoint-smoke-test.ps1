@@ -1,198 +1,166 @@
-$ErrorActionPreference = 'Continue'
-$ProgressPreference = 'SilentlyContinue'
-$base = 'http://localhost:8080/api/v1'
-$complianceBase = 'http://localhost:8081/api/v1'
-$results = @()
-$n = 0
+# Manual, black-box endpoint smoke test for ledger-service.
+# Run with the service already started (see README "Running it").
+# Usage: powershell -ExecutionPolicy Bypass -File test-results\run-endpoint-smoke-test.ps1
 
-function Invoke-Case {
-    param($Name, $Method, $Url, $Body, $ExpectStatus, $ExpectCode)
-    $script:n++
-    $callArgs = @{ Method = $Method; Uri = $Url; TimeoutSec = 20; Headers = @{ 'X-Correlation-Id' = "smoke-$script:n" } }
-    if ($Body) { $callArgs.Body = ($Body | ConvertTo-Json -Compress); $callArgs.ContentType = 'application/json' }
-    $status = $null; $content = $null; $ok = $false
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
+
+$base = "http://localhost:8080/api/v1"
+$results = New-Object System.Collections.Generic.List[object]
+
+function Check($name, $ok, $detail) {
+    $results.Add([pscustomobject]@{ Case = $name; Result = if ($ok) {"PASS"} else {"FAIL"}; Detail = $detail })
+}
+
+function AsText($content) {
+    if ($content -is [byte[]]) { return [System.Text.Encoding]::UTF8.GetString($content) }
+    return $content
+}
+
+function Post($path, $body) {
     try {
-        $r = Invoke-WebRequest @callArgs -UseBasicParsing
-        $status = [int]$r.StatusCode
-        $content = [System.Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
+        $r = Invoke-WebRequest -Uri "$base$path" -Method POST -ContentType "application/json" -Body $body -UseBasicParsing
+        return @{ Status = $r.StatusCode; Body = AsText $r.Content }
     } catch {
         $resp = $_.Exception.Response
-        if ($resp) {
-            $status = [int]$resp.StatusCode
-            $stream = $resp.GetResponseStream()
-            $reader = New-Object System.IO.StreamReader($stream)
-            $content = $reader.ReadToEnd()
-        } else {
-            $content = "TRANSPORT ERROR: $($_.Exception.Message)"
-        }
-    }
-$code = $null
-    if ($content) {
-        $m = [regex]::Match($content, '"code"\s*:\s*"([^"]+)"')
-        if ($m.Success) { $code = $m.Groups[1].Value }
-    }
-    $statusOk = ($ExpectStatus -eq $null) -or ($status -eq $ExpectStatus)
-    # A status-only check would have let case #15's original form pass for the wrong
-    # reason (LDG-1003 insufficient funds instead of LDG-3001 compliance rejected) -
-    # both are 422. When a specific code is named, it must match too.
-    $codeOk = ($ExpectCode -eq $null) -or ($code -eq $ExpectCode)
-    $ok = $statusOk -and $codeOk
-    [PSCustomObject]@{
-        N = $script:n; Name = $Name; Method = $Method; Url = $Url
-        ExpectedStatus = $ExpectStatus; ActualStatus = $status
-        ExpectedCode = $ExpectCode; ErrorCode = $code
-        Pass = $ok; Body = $content
+        $sc = [int]$resp.StatusCode
+        $stream = $resp.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($stream)
+        $content = $reader.ReadToEnd()
+        return @{ Status = $sc; Body = $content }
     }
 }
 
-$srcId  = "ACC-SMK-$(Get-Random -Minimum 1000 -Maximum 9999)"
-$dstId  = "ACC-SMK-$(Get-Random -Minimum 1000 -Maximum 9999)"
-$badId  = "ACC-SMK-NOPE-$(Get-Random -Minimum 1000 -Maximum 9999)"
-
-# 1: open source account with an opening balance
-$results += Invoke-Case "Open source account (with opening balance)" POST "$base/accounts" `
-    @{ accountId = $srcId; holderName = "Smoke Source"; openingBalance = 1000.00; currency = "GBP" } 201
-
-# 2: open destination account at zero
-$results += Invoke-Case "Open destination account (zero balance)" POST "$base/accounts" `
-    @{ accountId = $dstId; holderName = "Smoke Destination"; currency = "GBP" } 201
-
-# 3: duplicate account id -> 409
-$results += Invoke-Case "Re-open the same account id (expect 409 conflict)" POST "$base/accounts" `
-    @{ accountId = $srcId; holderName = "Duplicate"; openingBalance = 1.00; currency = "GBP" } 409 "LDG-2002"
-
-# 4: get account
-$results += Invoke-Case "Get account by id" GET "$base/accounts/$srcId" $null 200
-
-# 5: get account - unknown id -> 404
-$results += Invoke-Case "Get unknown account (expect 404)" GET "$base/accounts/$badId" $null 404 "LDG-2001"
-
-# 6: balance
-$results += Invoke-Case "Get balance" GET "$base/accounts/$srcId/balance" $null 200
-
-# 7: deposit
-$results += Invoke-Case "Deposit 250.50" POST "$base/accounts/$srcId/deposits" `
-    @{ amount = 250.50; currency = "GBP"; narrative = "Smoke deposit" } 201
-
-# 8: deposit invalid amount -> 400
-$results += Invoke-Case "Deposit zero amount (expect 400 invalid amount)" POST "$base/accounts/$srcId/deposits" `
-    @{ amount = 0; currency = "GBP"; narrative = "Should fail" } 400 "LDG-1001"
-
-# 9: withdraw
-$results += Invoke-Case "Withdraw 50.50" POST "$base/accounts/$srcId/withdrawals" `
-    @{ amount = 50.50; currency = "GBP"; narrative = "Smoke withdrawal" } 201
-
-# 10: overdraft -> 422
-$results += Invoke-Case "Withdraw far more than balance (expect 422 insufficient funds)" POST "$base/accounts/$srcId/withdrawals" `
-    @{ amount = 999999.00; currency = "GBP"; narrative = "Too much" } 422 "LDG-1003"
-
-# 11: currency mismatch -> 400
-$results += Invoke-Case "Deposit in wrong-but-real currency USD (expect 400 currency mismatch)" POST "$base/accounts/$srcId/deposits" `
-    @{ amount = 10.00; currency = "USD"; narrative = "Wrong currency" } 400 "LDG-1002"
-
-# 12: malformed currency code -> 400
-$results += Invoke-Case "Deposit with a non-ISO currency code XYZ (expect 400 malformed request)" POST "$base/accounts/$srcId/deposits" `
-    @{ amount = 10.00; currency = "XYZ"; narrative = "Bad code" } 400 "LDG-4001"
-
-# 13: transfer approved
-$results += Invoke-Case "Transfer 100.00 (expect approved)" POST "$base/transfers" `
-    @{ sourceAccountId = $srcId; destinationAccountId = $dstId; amount = 100.00; currency = "GBP"; narrative = "Smoke transfer" } 201
-
-# 14: same-account transfer -> 400
-$results += Invoke-Case "Transfer to the same account (expect 400)" POST "$base/transfers" `
-    @{ sourceAccountId = $srcId; destinationAccountId = $srcId; amount = 1.00; currency = "GBP"; narrative = "Same account" } 400 "LDG-1004"
-
-# 15: transfer above compliance limit -> 422 LDG-3001 compliance rejected.
-# Needs enough balance that the refusal genuinely comes from screening, not from
-# an overdraft check tripping first - fund the account well above the limit.
-$results += Invoke-Case "Top up source so it can afford a limit-testing transfer" POST "$base/accounts/$srcId/deposits" `
-    @{ amount = 20000.00; currency = "GBP"; narrative = "Fund for compliance-limit case" } 201
-$results += Invoke-Case "Transfer 10000.00 - at the screening limit, funds available (expect 422 compliance rejected)" POST "$base/transfers" `
-    @{ sourceAccountId = $srcId; destinationAccountId = $dstId; amount = 10000.00; currency = "GBP"; narrative = "At the limit" } 422 "LDG-3001"
-
-# 16: transfer to a nonexistent destination -> 404
-$results += Invoke-Case "Transfer to unknown destination account (expect 404)" POST "$base/transfers" `
-    @{ sourceAccountId = $srcId; destinationAccountId = $badId; amount = 1.00; currency = "GBP"; narrative = "Unknown dest" } 404 "LDG-2001"
-
-# 17: balances after all movement
-$results += Invoke-Case "Source balance after all movement" GET "$base/accounts/$srcId/balance" $null 200
-$results += Invoke-Case "Destination balance after all movement" GET "$base/accounts/$dstId/balance" $null 200
-
-# 18: statement, default paging
-$results += Invoke-Case "Source transaction history (default paging)" GET "$base/accounts/$srcId/transactions" $null 200
-
-# 19: statement, explicit small page
-$results += Invoke-Case "Source transaction history (page=0&size=2)" GET "$base/accounts/$srcId/transactions?page=0&size=2" $null 200
-
-# 20: statement, out-of-range page -> still 200, empty window
-$results += Invoke-Case "Source transaction history (page=99, out of range, expect empty window)" GET "$base/accounts/$srcId/transactions?page=99&size=10" $null 200
-
-# 21: destination has exactly one entry (the transfer in) -> zero-opened accounts have no opening entry
-$results += Invoke-Case "Destination transaction history (opened at zero: expect just the transfer-in)" GET "$base/accounts/$dstId/transactions" $null 200
-
-# 22: direct call to compliance-service screening endpoint
-$results += Invoke-Case "Direct call to compliance-service: approve" POST "$complianceBase/screenings" `
-    @{ reference = [guid]::NewGuid().ToString(); sourceAccountId = $srcId; destinationAccountId = $dstId; amount = 5.00; currency = "GBP" } 200
-
-# 23: direct call to compliance-service: over the limit
-$results += Invoke-Case "Direct call to compliance-service: refuse (over limit, expect 200 decision=REJECTED)" POST "$complianceBase/screenings" `
-    @{ reference = [guid]::NewGuid().ToString(); sourceAccountId = $srcId; destinationAccountId = $dstId; amount = 50000.00; currency = "GBP" } 200
-
-# 24: actuator health on both services, while compliance-service is still up
-$results += Invoke-Case "ledger-service liveness probe" GET "http://localhost:8080/actuator/health/liveness" $null 200
-$results += Invoke-Case "ledger-service readiness probe" GET "http://localhost:8080/actuator/health/readiness" $null 200
-$results += Invoke-Case "compliance-service liveness probe" GET "http://localhost:8081/actuator/health/liveness" $null 200
-$results += Invoke-Case "compliance-service readiness probe" GET "http://localhost:8081/actuator/health/readiness" $null 200
-
-# 25: fail-closed behaviour. This one needs compliance-service to be genuinely
-# unreachable, which the caller of this script arranges by stopping it before
-# this point and starting it again afterwards. Skipped gracefully if it is
-# still reachable (nothing to prove without the outage).
-$complianceReachable = $true
-try { Invoke-WebRequest -Uri "http://localhost:8081/actuator/health" -UseBasicParsing -TimeoutSec 2 | Out-Null }
-catch { $complianceReachable = $false }
-
-if (-not $complianceReachable) {
-    $sourceBalanceBefore = (Invoke-WebRequest -Uri "$base/accounts/$srcId/balance" -UseBasicParsing).Content |
-        ConvertFrom-Json | Select-Object -ExpandProperty balance
-
-    $results += Invoke-Case "Transfer while compliance-service is down (expect 503 screening unavailable)" POST "$base/transfers" `
-        @{ sourceAccountId = $srcId; destinationAccountId = $dstId; amount = 1.00; currency = "GBP"; narrative = "Should be refused, funds must not move" } 503 "LDG-3002"
-
-    $sourceBalanceAfter = (Invoke-WebRequest -Uri "$base/accounts/$srcId/balance" -UseBasicParsing).Content |
-        ConvertFrom-Json | Select-Object -ExpandProperty balance
-
-    $balanceRestored = ($sourceBalanceBefore -eq $sourceBalanceAfter)
-    $script:n++
-    $results += [PSCustomObject]@{
-        N = $script:n
-        Name = "Source balance unchanged after the refused/reversed transfer (saga compensation)"
-        Method = "GET"; Url = "$base/accounts/$srcId/balance"
-        ExpectedStatus = $null; ActualStatus = $null; ExpectedCode = $null; ErrorCode = $null
-        Pass = $balanceRestored
-        Body = "before=$sourceBalanceBefore after=$sourceBalanceAfter"
+function Get($path) {
+    try {
+        $r = Invoke-WebRequest -Uri "$base$path" -Method GET -UseBasicParsing
+        return @{ Status = $r.StatusCode; Body = AsText $r.Content }
+    } catch {
+        $resp = $_.Exception.Response
+        $sc = [int]$resp.StatusCode
+        $stream = $resp.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($stream)
+        $content = $reader.ReadToEnd()
+        return @{ Status = $sc; Body = $content }
     }
-} else {
-    "compliance-service was still reachable - skipping the fail-closed case (run the outage scenario manually to exercise LDG-3002)."
 }
 
-$results | Export-Csv -Path .git\smoke-results.csv -NoTypeInformation -Encoding utf8
+# Fresh, timestamp-suffixed account ids, so this run cannot collide with accounts left over
+# by an earlier run against the same long-lived in-memory database.
+$suffix = Get-Date -Format "HHmmss"
+$src = "ACC-5${suffix}"
+$dst = "ACC-6${suffix}"
 
-$lines = @()
-$lines += "Smoke test run: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-$lines += "Source account: $srcId   Destination account: $dstId   Unknown id used: $badId"
-$lines += ""
-foreach ($r in $results) {
-    $mark = if ($r.Pass) { "PASS" } else { "FAIL" }
-    $lines += "[$mark] #$($r.N) $($r.Name)"
-    $lines += "       $($r.Method) $($r.Url)"
-    $lines += "       expected status=$($r.ExpectedStatus) actual status=$($r.ActualStatus)   expected code=$($r.ExpectedCode) actual code=$($r.ErrorCode)"
-    $lines += "       body: $($r.Body)"
-    $lines += ""
+# 1. Open source account with an opening balance
+$r = Post "/accounts" "{`"accountId`":`"$src`",`"holderName`":`"Ada Lovelace`",`"openingBalance`":500.00,`"currency`":`"GBP`"}"
+Check "01 Open $src with 500.00 opening balance" ($r.Status -eq 201) $r.Body
+
+# 2. Open destination account with no opening balance (defaults to zero)
+$r = Post "/accounts" "{`"accountId`":`"$dst`",`"holderName`":`"Grace Hopper`"}"
+Check "02 Open $dst with no opening balance" ($r.Status -eq 201) $r.Body
+
+# 3. Duplicate account id is rejected
+$r = Post "/accounts" "{`"accountId`":`"$src`",`"holderName`":`"Someone Else`",`"openingBalance`":10.00}"
+Check "03 Duplicate account id -> 409 LDG-2002" (($r.Status -eq 409) -and ($r.Body -match "LDG-2002")) $r.Body
+
+# 4. Get account by id
+$r = Get "/accounts/$src"
+Check "04 Get $src" (($r.Status -eq 200) -and ($r.Body -match "500")) $r.Body
+
+# 5. Get balance
+$r = Get "/accounts/$src/balance"
+Check "05 Balance of $src = 500.00" (($r.Status -eq 200) -and ($r.Body -match "500")) $r.Body
+
+# 6. Unknown account -> 404
+$r = Get "/accounts/ACC-9999"
+Check "06 Unknown account -> 404 LDG-2001" (($r.Status -eq 404) -and ($r.Body -match "LDG-2001")) $r.Body
+
+# 7. Deposit
+$r = Post "/accounts/$src/deposits" '{"amount":250.50,"currency":"GBP","narrative":"Salary"}'
+Check "07 Deposit 250.50 into $src" (($r.Status -eq 201) -and ($r.Body -match "DEPOSIT")) $r.Body
+
+# 8. Zero-amount deposit rejected
+$r = Post "/accounts/$src/deposits" '{"amount":0,"currency":"GBP"}'
+Check "08 Zero deposit -> 400 LDG-1001" (($r.Status -eq 400) -and ($r.Body -match "LDG-1001")) $r.Body
+
+# 9. Withdrawal
+$r = Post "/accounts/$src/withdrawals" '{"amount":100.00,"currency":"GBP","narrative":"Cash machine"}'
+Check "09 Withdraw 100.00 from $src" (($r.Status -eq 201) -and ($r.Body -match "WITHDRAWAL")) $r.Body
+
+# 10. Overdraft refused
+$r = Post "/accounts/$src/withdrawals" '{"amount":999999.00,"currency":"GBP"}'
+Check "10 Overdraft refused -> 422 LDG-1003" (($r.Status -eq 422) -and ($r.Body -match "LDG-1003")) $r.Body
+
+# 11. Wrong-but-real currency rejected by domain
+$r = Post "/accounts/$src/withdrawals" '{"amount":10.00,"currency":"USD"}'
+Check "11 Wrong real currency -> 400 LDG-1002" (($r.Status -eq 400) -and ($r.Body -match "LDG-1002")) $r.Body
+
+# 12. Unrecognised currency code rejected at the edge
+$r = Post "/accounts/$src/withdrawals" '{"amount":10.00,"currency":"ZZZ"}'
+Check "12 Unknown currency code -> 400 LDG-4001" (($r.Status -eq 400) -and ($r.Body -match "LDG-4001")) $r.Body
+
+# 13. Transfer, approved end to end
+$r = Post "/transfers" "{`"sourceAccountId`":`"$src`",`"destinationAccountId`":`"$dst`",`"amount`":100.00,`"currency`":`"GBP`",`"narrative`":`"Rent`"}"
+Check "13 Transfer 100.00 $src -> $dst" (($r.Status -eq 201) -and ($r.Body -match "TRANSFER_OUT") -and ($r.Body -match "TRANSFER_IN")) $r.Body
+
+# 14. Same-account transfer rejected
+$r = Post "/transfers" "{`"sourceAccountId`":`"$src`",`"destinationAccountId`":`"$src`",`"amount`":10.00}"
+Check "14 Same-account transfer -> 400 LDG-1004" (($r.Status -eq 400) -and ($r.Body -match "LDG-1004")) $r.Body
+
+# 15. Transfer to unknown destination
+$r = Post "/transfers" "{`"sourceAccountId`":`"$src`",`"destinationAccountId`":`"ACC-9999`",`"amount`":10.00}"
+Check "15 Transfer to unknown destination -> 404 LDG-2001" (($r.Status -eq 404) -and ($r.Body -match "LDG-2001")) $r.Body
+
+# 16. Balances after the transfer settle correctly
+# 500.00 opening + 250.50 deposit - 100.00 withdrawal - 100.00 transfer = 550.50
+$rSource = Get "/accounts/$src/balance"
+$rDest = Get "/accounts/$dst/balance"
+Check "16 Balances reconcile after transfer" (($rSource.Body -match "550.50") -and ($rDest.Body -match "100")) "source=$($rSource.Body) dest=$($rDest.Body)"
+
+# 17. Statement, default paging
+$r = Get "/accounts/$src/transactions"
+Check "17 Statement default paging" (($r.Status -eq 200) -and ($r.Body -match "Opening balance")) $r.Body
+
+# 18. Statement, explicit small page
+$r = Get "/accounts/$src/transactions?page=0&size=2"
+Check "18 Statement explicit small page" ($r.Status -eq 200) $r.Body
+
+# 19. Statement, out-of-range page -> empty window, not an error
+$r = Get "/accounts/$src/transactions?page=40&size=10"
+Check "19 Out-of-range page -> empty window" (($r.Status -eq 200) -and ($r.Body -match '"transactions":\[\]')) $r.Body
+
+# 20. Account opened at zero shows only the transfer-in entry, no opening entry
+$r = Get "/accounts/$dst/transactions"
+Check "20 $dst statement shows only the transfer-in, no opening entry" (($r.Status -eq 200) -and ($r.Body -match '"totalTransactions":1') -and ($r.Body -match "TRANSFER_IN")) $r.Body
+
+# 21. Health endpoints
+# Actuator responds with a vendor content type PowerShell 5.1 does not recognise as text, so
+# Content comes back as a byte[] rather than a string unless decoded explicitly.
+function GetText($uri) {
+    $r = Invoke-WebRequest -Uri $uri -UseBasicParsing
+    $text = if ($r.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($r.Content) } else { $r.Content }
+    return @{ Status = $r.StatusCode; Body = $text }
 }
+
+$r = GetText "http://localhost:8080/actuator/health/liveness"
+Check "21 Liveness probe UP" (($r.Status -eq 200) -and ($r.Body -match "UP")) $r.Body
+
+$r = GetText "http://localhost:8080/actuator/health/readiness"
+Check "22 Readiness probe UP" (($r.Status -eq 200) -and ($r.Body -match "UP")) $r.Body
+
+# --- Output ---
+$passed = ($results | Where-Object { $_.Result -eq "PASS" }).Count
 $total = $results.Count
-$passed = ($results | Where-Object { $_.Pass }).Count
-$lines += "TOTAL: $passed / $total passed"
-$lines -join "`n" | Out-File -FilePath .git\smoke-results.txt -Encoding utf8
 
-"DONE: $passed / $total passed"
+$lines = New-Object System.Collections.Generic.List[string]
+foreach ($row in $results) {
+    $lines.Add("[$($row.Result)] $($row.Case)")
+    $lines.Add("       $($row.Detail)")
+}
+$lines.Add("")
+$lines.Add("$passed/$total passed")
+
+$lines | Write-Output
+
+$results | Export-Csv -Path "test-results\endpoint-smoke-test-normal.csv" -NoTypeInformation
+$lines | Set-Content -Path "test-results\endpoint-smoke-test-normal.txt"

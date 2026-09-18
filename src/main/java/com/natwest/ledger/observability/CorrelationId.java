@@ -7,11 +7,11 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * The identifier that ties every log line of one request together, across both services.
+ * The identifier that ties every log line of one request together.
  *
- * <p>Without it, diagnosing a failed transfer means correlating two services' logs by timestamp and
- * amount - which stops working the moment two similar payments happen in the same second, exactly when
- * you most need it to work.
+ * <p>Without it, diagnosing a failed request means correlating log lines by timestamp and amount -
+ * which stops working the moment two similar requests happen in the same second, exactly when you
+ * most need it to work.
  *
  * <p><b>A supplied correlation id is sanitised, never trusted.</b> This value comes from a request
  * header and is written straight into log lines, which makes it a log-injection vector: a newline lets

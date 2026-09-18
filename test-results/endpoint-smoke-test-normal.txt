@@ -1,149 +1,46 @@
-﻿Smoke test run: 2026-09-16 18:06:06
-Source account: ACC-SMK-4629   Destination account: ACC-SMK-9363   Unknown id used: ACC-SMK-NOPE-8491
+[PASS] 01 Open ACC-5140743 with 500.00 opening balance
+       {"accountId":"ACC-5140743","holderName":"Ada Lovelace","balance":500.00,"currency":"GBP"}
+[PASS] 02 Open ACC-6140743 with no opening balance
+       {"accountId":"ACC-6140743","holderName":"Grace Hopper","balance":0.00,"currency":"GBP"}
+[PASS] 03 Duplicate account id -> 409 LDG-2002
+       {"type":"https://api.natwest.example/problems/duplicate-account","title":"An account already exists with the supplied identifier","status":409,"detail":"An account already exists with id ACC-5140743","instance":"/api/v1/accounts","code":"LDG-2002","timestamp":"2026-09-18T08:37:43.702788700Z","details":{"accountId":"ACC-5140743"}}
+[PASS] 04 Get ACC-5140743
+       {"accountId":"ACC-5140743","holderName":"Ada Lovelace","balance":500.00,"currency":"GBP"}
+[PASS] 05 Balance of ACC-5140743 = 500.00
+       {"accountId":"ACC-5140743","balance":500.00,"currency":"GBP","asOf":"2026-09-18T08:37:43.848845800Z"}
+[PASS] 06 Unknown account -> 404 LDG-2001
+       {"type":"https://api.natwest.example/problems/account-not-found","title":"No account exists with the supplied identifier","status":404,"detail":"No account exists with id ACC-9999","instance":"/api/v1/accounts/ACC-9999","code":"LDG-2001","timestamp":"2026-09-18T08:37:43.931547100Z","details":{"accountId":"ACC-9999"}}
+[PASS] 07 Deposit 250.50 into ACC-5140743
+       {"entryId":"608ed6fa-5cd2-41d3-b244-c1de53beb4bc","reference":"89581113-fc49-47b3-bb82-577a1d855bff","accountId":"ACC-5140743","type":"DEPOSIT","direction":"CREDIT","amount":250.50,"balanceAfter":750.50,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.022332300Z","narrative":"Salary"}
+[PASS] 08 Zero deposit -> 400 LDG-1001
+       {"type":"https://api.natwest.example/problems/invalid-amount","title":"The supplied monetary amount is not valid","status":400,"detail":"A deposit requires a positive amount but was 0.00 GBP","instance":"/api/v1/accounts/ACC-5140743/deposits","code":"LDG-1001","timestamp":"2026-09-18T08:37:44.072322300Z","details":{"amount":"0.00","operation":"A deposit"}}
+[PASS] 09 Withdraw 100.00 from ACC-5140743
+       {"entryId":"6a884eea-0d5d-4f71-89f5-bcb18a2908a9","reference":"f81d0f67-cadf-4580-8236-85b82e255ed2","accountId":"ACC-5140743","type":"WITHDRAWAL","direction":"DEBIT","amount":100.00,"balanceAfter":650.50,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.093035800Z","narrative":"Cash machine"}
+[PASS] 10 Overdraft refused -> 422 LDG-1003
+       {"type":"https://api.natwest.example/problems/insufficient-funds","title":"The account does not hold enough funds for this withdrawal","status":422,"detail":"Account ACC-5140743 holds 650.50 GBP which cannot cover a withdrawal of 999999.00 GBP (short by 999348.50 GBP)","instance":"/api/v1/accounts/ACC-5140743/withdrawals","code":"LDG-1003","timestamp":"2026-09-18T08:37:44.137524500Z","details":{"balance":"650.50","accountId":"ACC-5140743","shortfall":"999348.50","currency":"GBP","requested":"999999.00"}}
+[PASS] 11 Wrong real currency -> 400 LDG-1002
+       {"type":"https://api.natwest.example/problems/currency-mismatch","title":"The supplied amount is in a different currency to the account","status":400,"detail":"Expected an amount in GBP but was USD; this service does not convert between currencies","instance":"/api/v1/accounts/ACC-5140743/withdrawals","code":"LDG-1002","timestamp":"2026-09-18T08:37:44.216566300Z","details":{"expectedCurrency":"GBP","actualCurrency":"USD"}}
+[PASS] 12 Unknown currency code -> 400 LDG-4001
+       {"type":"https://api.natwest.example/problems/malformed-request","title":"The request could not be read or failed validation","status":400,"detail":"'ZZZ' is not a recognised ISO 4217 currency code","instance":"/api/v1/accounts/ACC-5140743/withdrawals","code":"LDG-4001","timestamp":"2026-09-18T08:37:44.230838900Z"}
+[PASS] 13 Transfer 100.00 ACC-5140743 -> ACC-6140743
+       {"reference":"9f8e62ef-e05c-4ce3-b4df-5385ed426223","sourceAccountId":"ACC-5140743","destinationAccountId":"ACC-6140743","amount":100.00,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.246049200Z","debit":{"entryId":"f7606ab8-7c94-4ed7-80e9-e365c1908114","reference":"9f8e62ef-e05c-4ce3-b4df-5385ed426223","accountId":"ACC-5140743","type":"TRANSFER_OUT","direction":"DEBIT","amount":100.00,"balanceAfter":550.50,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.246049200Z","narrative":"Rent"},"credit":{"entryId":"23423e9e-b135-4fd4-a897-14f119f5de8f","reference":"9f8e62ef-e05c-4ce3-b4df-5385ed426223","accountId":"ACC-6140743","type":"TRANSFER_IN","direction":"CREDIT","amount":100.00,"balanceAfter":100.00,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.246049200Z","narrative":"Rent"}}
+[PASS] 14 Same-account transfer -> 400 LDG-1004
+       {"type":"https://api.natwest.example/problems/same-account-transfer","title":"A transfer must be between two different accounts","status":400,"detail":"Cannot transfer from account ACC-5140743 to itself","instance":"/api/v1/transfers","code":"LDG-1004","timestamp":"2026-09-18T08:37:44.278501100Z","details":{"accountId":"ACC-5140743"}}
+[PASS] 15 Transfer to unknown destination -> 404 LDG-2001
+       {"type":"https://api.natwest.example/problems/account-not-found","title":"No account exists with the supplied identifier","status":404,"detail":"No account exists with id ACC-9999","instance":"/api/v1/transfers","code":"LDG-2001","timestamp":"2026-09-18T08:37:44.303601400Z","details":{"accountId":"ACC-9999"}}
+[PASS] 16 Balances reconcile after transfer
+       source={"accountId":"ACC-5140743","balance":550.50,"currency":"GBP","asOf":"2026-09-18T08:37:44.321849700Z"} dest={"accountId":"ACC-6140743","balance":100.00,"currency":"GBP","asOf":"2026-09-18T08:37:44.330993900Z"}
+[PASS] 17 Statement default paging
+       {"accountId":"ACC-5140743","transactions":[{"entryId":"f669f01f-94d5-43d4-a557-240dbe4ea5c3","reference":"c99d7dd8-d640-4f2f-9714-b02dafaedfd2","accountId":"ACC-5140743","type":"DEPOSIT","direction":"CREDIT","amount":500.00,"balanceAfter":500.00,"currency":"GBP","occurredAt":"2026-09-18T08:37:43.467976Z","narrative":"Opening balance"},{"entryId":"608ed6fa-5cd2-41d3-b244-c1de53beb4bc","reference":"89581113-fc49-47b3-bb82-577a1d855bff","accountId":"ACC-5140743","type":"DEPOSIT","direction":"CREDIT","amount":250.50,"balanceAfter":750.50,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.022332Z","narrative":"Salary"},{"entryId":"6a884eea-0d5d-4f71-89f5-bcb18a2908a9","reference":"f81d0f67-cadf-4580-8236-85b82e255ed2","accountId":"ACC-5140743","type":"WITHDRAWAL","direction":"DEBIT","amount":100.00,"balanceAfter":650.50,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.093036Z","narrative":"Cash machine"},{"entryId":"f7606ab8-7c94-4ed7-80e9-e365c1908114","reference":"9f8e62ef-e05c-4ce3-b4df-5385ed426223","accountId":"ACC-5140743","type":"TRANSFER_OUT","direction":"DEBIT","amount":100.00,"balanceAfter":550.50,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.246049Z","narrative":"Rent"}],"page":0,"size":50,"totalTransactions":4,"totalPages":1,"hasNext":false}
+[PASS] 18 Statement explicit small page
+       {"accountId":"ACC-5140743","transactions":[{"entryId":"f669f01f-94d5-43d4-a557-240dbe4ea5c3","reference":"c99d7dd8-d640-4f2f-9714-b02dafaedfd2","accountId":"ACC-5140743","type":"DEPOSIT","direction":"CREDIT","amount":500.00,"balanceAfter":500.00,"currency":"GBP","occurredAt":"2026-09-18T08:37:43.467976Z","narrative":"Opening balance"},{"entryId":"608ed6fa-5cd2-41d3-b244-c1de53beb4bc","reference":"89581113-fc49-47b3-bb82-577a1d855bff","accountId":"ACC-5140743","type":"DEPOSIT","direction":"CREDIT","amount":250.50,"balanceAfter":750.50,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.022332Z","narrative":"Salary"}],"page":0,"size":2,"totalTransactions":4,"totalPages":2,"hasNext":true}
+[PASS] 19 Out-of-range page -> empty window
+       {"accountId":"ACC-5140743","transactions":[],"page":40,"size":10,"totalTransactions":4,"totalPages":1,"hasNext":false}
+[PASS] 20 ACC-6140743 statement shows only the transfer-in, no opening entry
+       {"accountId":"ACC-6140743","transactions":[{"entryId":"23423e9e-b135-4fd4-a897-14f119f5de8f","reference":"9f8e62ef-e05c-4ce3-b4df-5385ed426223","accountId":"ACC-6140743","type":"TRANSFER_IN","direction":"CREDIT","amount":100.00,"balanceAfter":100.00,"currency":"GBP","occurredAt":"2026-09-18T08:37:44.246049Z","narrative":"Rent"}],"page":0,"size":50,"totalTransactions":1,"totalPages":1,"hasNext":false}
+[PASS] 21 Liveness probe UP
+       {"status":"UP"}
+[PASS] 22 Readiness probe UP
+       {"status":"UP"}
 
-[PASS] #1 Open source account (with opening balance)
-       POST http://localhost:8080/api/v1/accounts
-       expected status=201 actual status=201   expected code= actual code=
-       body: {"accountId":"ACC-SMK-4629","holderName":"Smoke Source","balance":1000.00,"currency":"GBP"}
-
-[PASS] #2 Open destination account (zero balance)
-       POST http://localhost:8080/api/v1/accounts
-       expected status=201 actual status=201   expected code= actual code=
-       body: {"accountId":"ACC-SMK-9363","holderName":"Smoke Destination","balance":0.00,"currency":"GBP"}
-
-[PASS] #3 Re-open the same account id (expect 409 conflict)
-       POST http://localhost:8080/api/v1/accounts
-       expected status=409 actual status=409   expected code=LDG-2002 actual code=LDG-2002
-       body: {"type":"https://api.natwest.example/problems/duplicate-account","title":"An account already exists with the supplied identifier","status":409,"detail":"An account already exists with id ACC-SMK-4629","instance":"/api/v1/accounts","code":"LDG-2002","timestamp":"2026-09-16T12:36:05.466264Z","details":{"accountId":"ACC-SMK-4629"}}
-
-[PASS] #4 Get account by id
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-4629
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-4629","holderName":"Smoke Source","balance":1000.00,"currency":"GBP"}
-
-[PASS] #5 Get unknown account (expect 404)
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-NOPE-8491
-       expected status=404 actual status=404   expected code=LDG-2001 actual code=LDG-2001
-       body: {"type":"https://api.natwest.example/problems/account-not-found","title":"No account exists with the supplied identifier","status":404,"detail":"No account exists with id ACC-SMK-NOPE-8491","instance":"/api/v1/accounts/ACC-SMK-NOPE-8491","code":"LDG-2001","timestamp":"2026-09-16T12:36:05.530266500Z","details":{"accountId":"ACC-SMK-NOPE-8491"}}
-
-[PASS] #6 Get balance
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-4629/balance
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-4629","balance":1000.00,"currency":"GBP","asOf":"2026-09-16T12:36:05.552265400Z"}
-
-[PASS] #7 Deposit 250.50
-       POST http://localhost:8080/api/v1/accounts/ACC-SMK-4629/deposits
-       expected status=201 actual status=201   expected code= actual code=
-       body: {"entryId":"502d696d-1623-480a-b99c-b110a2d70856","reference":"1a2d683d-b721-46db-afcf-ec9c2a0ce8ae","accountId":"ACC-SMK-4629","type":"DEPOSIT","direction":"CREDIT","amount":250.50,"balanceAfter":1250.50,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.565266300Z","narrative":"Smoke deposit"}
-
-[PASS] #8 Deposit zero amount (expect 400 invalid amount)
-       POST http://localhost:8080/api/v1/accounts/ACC-SMK-4629/deposits
-       expected status=400 actual status=400   expected code=LDG-1001 actual code=LDG-1001
-       body: {"type":"https://api.natwest.example/problems/invalid-amount","title":"The supplied monetary amount is not valid","status":400,"detail":"A deposit requires a positive amount but was 0.00 GBP","instance":"/api/v1/accounts/ACC-SMK-4629/deposits","code":"LDG-1001","timestamp":"2026-09-16T12:36:05.585266200Z","details":{"operation":"A deposit","amount":"0.00"}}
-
-[PASS] #9 Withdraw 50.50
-       POST http://localhost:8080/api/v1/accounts/ACC-SMK-4629/withdrawals
-       expected status=201 actual status=201   expected code= actual code=
-       body: {"entryId":"7ba88966-247d-477b-b798-14a2835eb12b","reference":"33c0a586-5e03-4930-894e-dc788cac8ea9","accountId":"ACC-SMK-4629","type":"WITHDRAWAL","direction":"DEBIT","amount":50.50,"balanceAfter":1200.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.605339500Z","narrative":"Smoke withdrawal"}
-
-[PASS] #10 Withdraw far more than balance (expect 422 insufficient funds)
-       POST http://localhost:8080/api/v1/accounts/ACC-SMK-4629/withdrawals
-       expected status=422 actual status=422   expected code=LDG-1003 actual code=LDG-1003
-       body: {"type":"https://api.natwest.example/problems/insufficient-funds","title":"The account does not hold enough funds for this withdrawal","status":422,"detail":"Account ACC-SMK-4629 holds 1200.00 GBP which cannot cover a withdrawal of 999999.00 GBP (short by 998799.00 GBP)","instance":"/api/v1/accounts/ACC-SMK-4629/withdrawals","code":"LDG-1003","timestamp":"2026-09-16T12:36:05.628265Z","details":{"currency":"GBP","requested":"999999.00","balance":"1200.00","accountId":"ACC-SMK-4629","shortfall":"998799.00"}}
-
-[PASS] #11 Deposit in wrong-but-real currency USD (expect 400 currency mismatch)
-       POST http://localhost:8080/api/v1/accounts/ACC-SMK-4629/deposits
-       expected status=400 actual status=400   expected code=LDG-1002 actual code=LDG-1002
-       body: {"type":"https://api.natwest.example/problems/currency-mismatch","title":"The supplied amount is in a different currency to the account","status":400,"detail":"Expected an amount in GBP but was USD; this service does not convert between currencies","instance":"/api/v1/accounts/ACC-SMK-4629/deposits","code":"LDG-1002","timestamp":"2026-09-16T12:36:05.650362300Z","details":{"actualCurrency":"USD","expectedCurrency":"GBP"}}
-
-[PASS] #12 Deposit with a non-ISO currency code XYZ (expect 400 malformed request)
-       POST http://localhost:8080/api/v1/accounts/ACC-SMK-4629/deposits
-       expected status=400 actual status=400   expected code=LDG-4001 actual code=LDG-4001
-       body: {"type":"https://api.natwest.example/problems/malformed-request","title":"The request could not be read or failed validation","status":400,"detail":"'XYZ' is not a recognised ISO 4217 currency code","instance":"/api/v1/accounts/ACC-SMK-4629/deposits","code":"LDG-4001","timestamp":"2026-09-16T12:36:05.659267700Z"}
-
-[PASS] #13 Transfer 100.00 (expect approved)
-       POST http://localhost:8080/api/v1/transfers
-       expected status=201 actual status=201   expected code= actual code=
-       body: {"reference":"54c3c397-ab24-47e4-9c5f-74012bbd8d25","sourceAccountId":"ACC-SMK-4629","destinationAccountId":"ACC-SMK-9363","amount":100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.670606100Z","debit":{"entryId":"5c713338-a559-40af-9f95-a38c7ebb183a","reference":"54c3c397-ab24-47e4-9c5f-74012bbd8d25","accountId":"ACC-SMK-4629","type":"TRANSFER_OUT","direction":"DEBIT","amount":100.00,"balanceAfter":1100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.670606100Z","narrative":"Smoke transfer"},"credit":{"entryId":"2b9a4a24-9299-447f-a473-7f7ad1d0b5e9","reference":"54c3c397-ab24-47e4-9c5f-74012bbd8d25","accountId":"ACC-SMK-9363","type":"TRANSFER_IN","direction":"CREDIT","amount":100.00,"balanceAfter":100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.670606100Z","narrative":"Smoke transfer"}}
-
-[PASS] #14 Transfer to the same account (expect 400)
-       POST http://localhost:8080/api/v1/transfers
-       expected status=400 actual status=400   expected code=LDG-1004 actual code=LDG-1004
-       body: {"type":"https://api.natwest.example/problems/same-account-transfer","title":"A transfer must be between two different accounts","status":400,"detail":"Cannot transfer from account ACC-SMK-4629 to itself","instance":"/api/v1/transfers","code":"LDG-1004","timestamp":"2026-09-16T12:36:05.744591800Z","details":{"accountId":"ACC-SMK-4629"}}
-
-[PASS] #15 Top up source so it can afford a limit-testing transfer
-       POST http://localhost:8080/api/v1/accounts/ACC-SMK-4629/deposits
-       expected status=201 actual status=201   expected code= actual code=
-       body: {"entryId":"a1cc593f-1461-4b8a-acd1-ccad0960eedd","reference":"508830cf-daa4-4d4a-ba89-51e30db5c50a","accountId":"ACC-SMK-4629","type":"DEPOSIT","direction":"CREDIT","amount":20000.00,"balanceAfter":21100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.755267Z","narrative":"Fund for compliance-limit case"}
-
-[PASS] #16 Transfer 10000.00 - at the screening limit, funds available (expect 422 compliance rejected)
-       POST http://localhost:8080/api/v1/transfers
-       expected status=422 actual status=422   expected code=LDG-3001 actual code=LDG-3001
-       body: {"type":"https://api.natwest.example/problems/compliance-rejected","title":"The transfer was refused by compliance screening","status":422,"detail":"Transfer 47d31972-3d48-494c-8efc-557e170a0783 was refused by compliance screening (SINGLE_TRANSFER_LIMIT_EXCEEDED)","instance":"/api/v1/transfers","code":"LDG-3001","timestamp":"2026-09-16T12:36:06.155635600Z","details":{"retryable":false,"reason":"SINGLE_TRANSFER_LIMIT_EXCEEDED","reference":"47d31972-3d48-494c-8efc-557e170a0783"}}
-
-[PASS] #17 Transfer to unknown destination account (expect 404)
-       POST http://localhost:8080/api/v1/transfers
-       expected status=404 actual status=404   expected code=LDG-2001 actual code=LDG-2001
-       body: {"type":"https://api.natwest.example/problems/account-not-found","title":"No account exists with the supplied identifier","status":404,"detail":"No account exists with id ACC-SMK-NOPE-8491","instance":"/api/v1/transfers","code":"LDG-2001","timestamp":"2026-09-16T12:36:06.175637300Z","details":{"accountId":"ACC-SMK-NOPE-8491"}}
-
-[PASS] #18 Source balance after all movement
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-4629/balance
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-4629","balance":21100.00,"currency":"GBP","asOf":"2026-09-16T12:36:06.193178400Z"}
-
-[PASS] #19 Destination balance after all movement
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-9363/balance
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-9363","balance":100.00,"currency":"GBP","asOf":"2026-09-16T12:36:06.199117300Z"}
-
-[PASS] #20 Source transaction history (default paging)
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-4629/transactions
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-4629","transactions":[{"entryId":"0dac0683-1587-4b41-bdcb-603d3663cb24","reference":"50d14852-5e75-4b71-a835-67633e2ea337","accountId":"ACC-SMK-4629","type":"DEPOSIT","direction":"CREDIT","amount":1000.00,"balanceAfter":1000.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.408612Z","narrative":"Opening balance"},{"entryId":"502d696d-1623-480a-b99c-b110a2d70856","reference":"1a2d683d-b721-46db-afcf-ec9c2a0ce8ae","accountId":"ACC-SMK-4629","type":"DEPOSIT","direction":"CREDIT","amount":250.50,"balanceAfter":1250.50,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.565266Z","narrative":"Smoke deposit"},{"entryId":"7ba88966-247d-477b-b798-14a2835eb12b","reference":"33c0a586-5e03-4930-894e-dc788cac8ea9","accountId":"ACC-SMK-4629","type":"WITHDRAWAL","direction":"DEBIT","amount":50.50,"balanceAfter":1200.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.605340Z","narrative":"Smoke withdrawal"},{"entryId":"5c713338-a559-40af-9f95-a38c7ebb183a","reference":"54c3c397-ab24-47e4-9c5f-74012bbd8d25","accountId":"ACC-SMK-4629","type":"TRANSFER_OUT","direction":"DEBIT","amount":100.00,"balanceAfter":1100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.670606Z","narrative":"Smoke transfer"},{"entryId":"a1cc593f-1461-4b8a-acd1-ccad0960eedd","reference":"508830cf-daa4-4d4a-ba89-51e30db5c50a","accountId":"ACC-SMK-4629","type":"DEPOSIT","direction":"CREDIT","amount":20000.00,"balanceAfter":21100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.755267Z","narrative":"Fund for compliance-limit case"},{"entryId":"543d661b-e89d-4559-bd4a-bd4bf22eeb0f","reference":"47d31972-3d48-494c-8efc-557e170a0783","accountId":"ACC-SMK-4629","type":"TRANSFER_OUT","direction":"DEBIT","amount":10000.00,"balanceAfter":11100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:06.116635Z","narrative":"At the limit"},{"entryId":"c8299173-fc42-4fdd-b5a8-5f48aca40376","reference":"47d31972-3d48-494c-8efc-557e170a0783","accountId":"ACC-SMK-4629","type":"TRANSFER_REVERSAL","direction":"CREDIT","amount":10000.00,"balanceAfter":21100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:06.116635Z","narrative":"Reversed: compliance REJECTED (SINGLE_TRANSFER_LIMIT_EXCEEDED)"}],"page":0,"size":50,"totalTransactions":7,"totalPages":1,"hasNext":false}
-
-[PASS] #21 Source transaction history (page=0&size=2)
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-4629/transactions?page=0&size=2
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-4629","transactions":[{"entryId":"0dac0683-1587-4b41-bdcb-603d3663cb24","reference":"50d14852-5e75-4b71-a835-67633e2ea337","accountId":"ACC-SMK-4629","type":"DEPOSIT","direction":"CREDIT","amount":1000.00,"balanceAfter":1000.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.408612Z","narrative":"Opening balance"},{"entryId":"502d696d-1623-480a-b99c-b110a2d70856","reference":"1a2d683d-b721-46db-afcf-ec9c2a0ce8ae","accountId":"ACC-SMK-4629","type":"DEPOSIT","direction":"CREDIT","amount":250.50,"balanceAfter":1250.50,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.565266Z","narrative":"Smoke deposit"}],"page":0,"size":2,"totalTransactions":7,"totalPages":4,"hasNext":true}
-
-[PASS] #22 Source transaction history (page=99, out of range, expect empty window)
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-4629/transactions?page=99&size=10
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-4629","transactions":[],"page":99,"size":10,"totalTransactions":7,"totalPages":1,"hasNext":false}
-
-[PASS] #23 Destination transaction history (opened at zero: expect just the transfer-in)
-       GET http://localhost:8080/api/v1/accounts/ACC-SMK-9363/transactions
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"accountId":"ACC-SMK-9363","transactions":[{"entryId":"2b9a4a24-9299-447f-a473-7f7ad1d0b5e9","reference":"54c3c397-ab24-47e4-9c5f-74012bbd8d25","accountId":"ACC-SMK-9363","type":"TRANSFER_IN","direction":"CREDIT","amount":100.00,"balanceAfter":100.00,"currency":"GBP","occurredAt":"2026-09-16T12:36:05.670606Z","narrative":"Smoke transfer"}],"page":0,"size":50,"totalTransactions":1,"totalPages":1,"hasNext":false}
-
-[PASS] #24 Direct call to compliance-service: approve
-       POST http://localhost:8081/api/v1/screenings
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"reference":"15aff8bc-576e-4149-955d-7c96cc288403","decision":"APPROVED","reason":null,"screenedAt":"2026-09-16T12:36:06.298663700Z"}
-
-[PASS] #25 Direct call to compliance-service: refuse (over limit, expect 200 decision=REJECTED)
-       POST http://localhost:8081/api/v1/screenings
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"reference":"d41239c8-af3a-44c0-a9f4-78b389ec09c6","decision":"REJECTED","reason":"SINGLE_TRANSFER_LIMIT_EXCEEDED","screenedAt":"2026-09-16T12:36:06.348845400Z"}
-
-[PASS] #26 ledger-service liveness probe
-       GET http://localhost:8080/actuator/health/liveness
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"status":"UP"}
-
-[PASS] #27 ledger-service readiness probe
-       GET http://localhost:8080/actuator/health/readiness
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"status":"UP"}
-
-[PASS] #28 compliance-service liveness probe
-       GET http://localhost:8081/actuator/health/liveness
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"status":"UP"}
-
-[PASS] #29 compliance-service readiness probe
-       GET http://localhost:8081/actuator/health/readiness
-       expected status=200 actual status=200   expected code= actual code=
-       body: {"status":"UP"}
-
-TOTAL: 29 / 29 passed
+22/22 passed

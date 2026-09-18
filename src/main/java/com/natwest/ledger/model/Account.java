@@ -129,16 +129,6 @@ public class Account {
         return credit(TransactionType.TRANSFER_IN, amount, reference, occurredAt, narrative, "A transfer");
     }
 
-    /**
-     * Puts back money debited by a transfer whose later steps failed.
-     *
-     * <p>A credit rather than an edit of the original debit, so the ledger stays append-only and the
-     * statement tells the truth: the money left, then it came back.
-     */
-    public LedgerEntry reverseTransfer(Money amount, TransactionReference reference, Instant occurredAt, String narrative) {
-        return credit(TransactionType.TRANSFER_REVERSAL, amount, reference, occurredAt, narrative, "A reversal");
-    }
-
     private LedgerEntry credit(TransactionType type,
                                Money amount,
                                TransactionReference reference,

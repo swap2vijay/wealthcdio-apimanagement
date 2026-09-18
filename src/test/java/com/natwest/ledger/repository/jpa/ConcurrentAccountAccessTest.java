@@ -1,8 +1,6 @@
 package com.natwest.ledger.repository.jpa;
 
-import com.natwest.ledger.client.ProgrammableComplianceGateway;
 import com.natwest.ledger.exception.InsufficientFundsException;
-import com.natwest.ledger.exception.TransferCompensationFailedException;
 import com.natwest.ledger.model.Account;
 import com.natwest.ledger.model.AccountId;
 import com.natwest.ledger.model.LedgerEntry;
@@ -16,9 +14,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -66,23 +61,6 @@ class ConcurrentAccountAccessTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    /**
-     * Approves every transfer, so this test measures database contention rather than compliance.
-     *
-     * <p>Without it the real gateway would try to reach another process, fail, and every transfer would
-     * be refused - which would still conserve money, but only because none of it ever moved. The
-     * concurrency being tested here is the ledger's, not the dependency's.
-     */
-    @TestConfiguration
-    static class ApprovingComplianceConfiguration {
-
-        @Bean
-        @Primary
-        ProgrammableComplianceGateway approvingComplianceGateway() {
-            return new ProgrammableComplianceGateway();
-        }
-    }
-
     @BeforeEach
     void clearTables() {
         jdbcTemplate.execute("DELETE FROM ledger_entry");
@@ -121,10 +99,7 @@ class ConcurrentAccountAccessTest {
     private enum Outcome {
         APPLIED,
         REFUSED_INSUFFICIENT_FUNDS,
-        LOST_THE_RACE,
-
-        /** Money debited and not put back. Must never happen; asserted against explicitly. */
-        FUNDS_STRANDED
+        LOST_THE_RACE
     }
 
     @Test
@@ -219,9 +194,9 @@ class ConcurrentAccountAccessTest {
 
         int attempts = 12;
 
-        // Opposing transfers under contention. Each saga step touches one account, so the two-row
-        // deadlock is structurally impossible now - but the steps can still lose optimistic-lock races
-        // against each other, which is what makes this the test that matters for compensation.
+        // Opposing transfers under contention. Each transfer is one transaction touching both
+        // accounts, so a lost optimistic-lock race fails the whole transfer atomically - there is no
+        // window in which one leg has committed and the other has not.
         List<Outcome> outcomes = runConcurrently(attempts, () -> {
             boolean aliceToBob = Thread.currentThread().getId() % 2 == 0;
             try {
@@ -231,21 +206,12 @@ class ConcurrentAccountAccessTest {
                     transactionService.transfer(BOB, ALICE, Money.gbp("10.00"), null);
                 }
                 return Outcome.APPLIED;
-            } catch (TransferCompensationFailedException e) {
-                return Outcome.FUNDS_STRANDED;
             } catch (OptimisticLockingFailureException e) {
                 return Outcome.LOST_THE_RACE;
             } catch (InsufficientFundsException e) {
                 return Outcome.REFUSED_INSUFFICIENT_FUNDS;
             }
         });
-
-        // The guarantee that justifies retrying compensation. Before it was added, the credit step would
-        // lose a race, compensation would immediately lose one too, and money was stranded routinely
-        // rather than rarely.
-        assertThat(outcomes)
-                .as("no transfer may end with money debited and not put back")
-                .doesNotContain(Outcome.FUNDS_STRANDED);
 
         Money total = accountService.balanceOf(ALICE).plus(accountService.balanceOf(BOB));
 

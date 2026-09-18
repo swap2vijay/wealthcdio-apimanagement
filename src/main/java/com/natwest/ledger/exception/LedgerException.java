@@ -12,8 +12,7 @@ import java.util.Objects;
  *
  * <p><b>Unchecked.</b> These exceptions are not recoverable by the immediate caller - a REST
  * handler cannot conjure funds into an account. Making them checked would force
- * {@code throws} noise through every layer for no behavioural gain, so callers that genuinely
- * can compensate (the transfer saga in Phase 6) catch them explicitly instead.
+ * {@code throws} noise through every layer for no behavioural gain.
  *
  * <p><b>Carries a code, not a status.</b> Every instance names an {@link ErrorCode}, which lets
  * the web layer translate failures into transport responses in one place rather than each
